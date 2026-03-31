@@ -1,0 +1,8 @@
+_data/runs/
+_data/audit/*.jsonl
+*.pdf
+*.xlsx
+*.csv
+node_modules/
+__pycache__/
+.env
