@@ -146,32 +146,26 @@ class TestReconciliationWithCorrectMapping:
         # But unit mismatches (EA vs EACH, LS vs LUMP SUM) will cause FAIL
         assert matched + unmatched + summary.get("ambiguous_quote_lines_count", 0) <= 14
 
-    def test_unit_mismatches_detected(self, bid_rows, mapped_quote_rows):
+    def test_no_unit_mismatches_after_canonicalization(self, bid_rows, mapped_quote_rows):
         """
-        7 items use EA (quote) vs EACH (bid), 1 uses LS vs LUMP SUM.
-        Current system does exact match -> 8 unit mismatch FAILs expected.
-        Matching units: LF(550,630), SF(580), STA(600,610), CDAY(670) = 6 items.
+        Phase C-3: EA/EACH and LS/LUMP SUM now canonicalize to the same form.
+        All 14 items should pass unit comparison with zero mismatches.
         """
         findings, summary = reconcile_quote_lines_against_bid(bid_rows, mapped_quote_rows)
         unit_mismatches = [f for f in findings if f.type == "quote_bid_unit_mismatch"]
-        assert len(unit_mismatches) == 8, (
-            f"Expected 8 unit mismatches (7 EA/EACH + 1 LS/LUMP SUM), got {len(unit_mismatches)}"
+        assert len(unit_mismatches) == 0, (
+            f"Expected 0 unit mismatches after canonicalization, got {len(unit_mismatches)}"
         )
 
-    def test_matching_units_pass(self, bid_rows, mapped_quote_rows):
+    def test_all_14_items_reach_price_comparison(self, bid_rows, mapped_quote_rows):
         """
-        5 items have matching units (LF, SF, STA, CDAY).
-        These should match and proceed to price comparison.
-        Lines: 550(LF), 580(SF), 600(STA), 610(STA), 630(LF), 670(CDAY)
-        Wait — 630 is LF, 650 is LS/LUMP SUM mismatch, so 5 unit-matching items.
-        Actually: 550(LF), 580(SF), 600(STA), 610(STA), 630(LF), 670(CDAY) = 6 items.
-        But 2599-9999010 appears twice in bid -> item 2524-9325001... let me check.
+        All 14 items should now pass unit comparison and appear in comparisons.
         """
         findings, summary = reconcile_quote_lines_against_bid(bid_rows, mapped_quote_rows)
         comparisons = summary.get("comparisons", [])
-        # comparisons only include lines that got past the match+unit checks
-        # At minimum, LF/SF/STA/CDAY matches should appear
-        assert len(comparisons) >= 1, "Expected at least some unit-matched comparisons"
+        assert len(comparisons) == 14, (
+            f"Expected 14 comparisons (all items pass unit check), got {len(comparisons)}"
+        )
 
     def test_all_quote_prices_below_bid(self, bid_rows, mapped_quote_rows):
         """
@@ -366,14 +360,14 @@ class TestReconciliationWithAdapter:
         findings, summary = reconcile_quote_lines_against_bid(bid_rows, adapted_quote_rows)
         assert summary["matched_lines_count"] == 14
 
-    def test_unit_mismatches_still_8(self, bid_rows, adapted_quote_rows):
+    def test_no_unit_mismatches(self, bid_rows, adapted_quote_rows):
         """
-        8 unit mismatches remain (7 EA/EACH + 1 LS/LUMP SUM).
-        Adapter doesn't fix units — that's a future mission.
+        Phase C-3: EA/EACH and LS/LUMP SUM now canonicalize.
+        Zero unit mismatches expected.
         """
         findings, summary = reconcile_quote_lines_against_bid(bid_rows, adapted_quote_rows)
         unit_mismatches = [f for f in findings if f.type == "quote_bid_unit_mismatch"]
-        assert len(unit_mismatches) == 8
+        assert len(unit_mismatches) == 0
 
     def test_no_price_violations(self, bid_rows, adapted_quote_rows):
         """All IPSI quote unit prices are below bid unit prices."""

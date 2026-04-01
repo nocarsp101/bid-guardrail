@@ -100,27 +100,29 @@ class TestQuoteNormItemCode:
 
 
 # ---------------------------------------------------------------------------
-# Unit equivalence — documenting the gap
+# Unit equivalence — resolved by canonicalization (Phase C-3)
 # ---------------------------------------------------------------------------
 
-class TestUnitEquivalenceGap:
+class TestUnitEquivalenceResolved:
     """
-    These tests document that the current system does NOT handle
-    obvious unit equivalences. They PASS (proving the gap exists)
-    because the system treats these as different strings.
+    Phase C-3: canonicalize_unit() resolves EA/EACH, LS/LUMP SUM, etc.
+    Raw strings are still different, but canonicalized forms match.
     """
 
-    def test_ea_is_not_each(self):
-        """EA and EACH are different strings — system will FAIL match."""
-        assert "EA" != "EACH"
+    def test_ea_canonicalizes_to_each(self):
+        """EA and EACH canonicalize to the same value."""
+        from app.utils.unit_canonicalization import canonicalize_unit
+        assert canonicalize_unit("EA") == canonicalize_unit("EACH")
 
-    def test_ls_is_not_lump_sum(self):
-        """LS and LUMP SUM are different strings — system will FAIL match."""
-        assert "LS" != "LUMP SUM"
+    def test_ls_canonicalizes_to_lump_sum(self):
+        """LS and LUMP SUM canonicalize to the same value."""
+        from app.utils.unit_canonicalization import canonicalize_unit
+        assert canonicalize_unit("LS") == canonicalize_unit("LUMP SUM")
 
     def test_sy_equals_sy(self):
-        """Same string passes trivially."""
-        assert "SY" == "SY"
+        """Same string still matches trivially."""
+        from app.utils.unit_canonicalization import canonicalize_unit
+        assert canonicalize_unit("SY") == canonicalize_unit("SY")
 
 
 # ---------------------------------------------------------------------------

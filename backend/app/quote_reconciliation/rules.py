@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple, Optional
 
 from app.audit.models import Finding
+from app.utils.unit_canonicalization import canonicalize_unit
 
 
 def reconcile_quote_lines_against_bid(
@@ -43,7 +44,7 @@ def reconcile_quote_lines_against_bid(
         q_pay_item_key = _item_key(q_pay_item_raw)
 
         q_unit_raw = _s(q.get("unit"))
-        q_unit_key = _key(q_unit_raw)
+        q_unit_key = canonicalize_unit(q_unit_raw)
 
         q_qty = _to_num(q.get("qty")) or 0.0
         q_up = _to_num(q.get("unit_price"))
@@ -123,7 +124,7 @@ def reconcile_quote_lines_against_bid(
         b_idx = int(b.get("_row_index", -1))
         b_item_raw = _s(b.get("item"))
         b_unit_raw = _s(b.get("unit"))
-        b_unit_key = _key(b_unit_raw)
+        b_unit_key = canonicalize_unit(b_unit_raw)
         b_qty = _to_num(b.get("qty")) or 0.0
         b_up = _to_num(b.get("unit_price"))
         b_total = _to_num(b.get("total"))
