@@ -1,0 +1,114 @@
+[
+  {
+    "bid_item_num": 520,
+    "description": "Remove and Reinstall Sign per plan",
+    "units": "EA",
+    "qty": 1,
+    "per_unit": 275,
+    "total": 275
+  },
+  {
+    "bid_item_num": 530,
+    "description": "Remove and Reinstall Reference Location Sign",
+    "units": "EA",
+    "qty": 2,
+    "per_unit": 275,
+    "total": 550
+  },
+  {
+    "bid_item_num": 540,
+    "description": "Removal of Type A Sign Assembly",
+    "units": "EA",
+    "qty": 9,
+    "per_unit": 100,
+    "total": 900
+  },
+  {
+    "bid_item_num": 550,
+    "description": "Perforated Square Steel Tube Posts",
+    "units": "LF",
+    "qty": 323.5,
+    "per_unit": 25,
+    "total": 8087.5
+  },
+  {
+    "bid_item_num": 560,
+    "description": "Steel Tube Post Anchor, Soil Installation",
+    "units": "EA",
+    "qty": 19,
+    "per_unit": 100,
+    "total": 1900
+  },
+  {
+    "bid_item_num": 570,
+    "description": "Steel Tube Post Anchor, Concrete Installation",
+    "units": "EA",
+    "qty": 13,
+    "per_unit": 250,
+    "total": 3250
+  },
+  {
+    "bid_item_num": 580,
+    "description": "Type A Signs, Sheet Aluminum",
+    "units": "SF",
+    "qty": 306.9,
+    "per_unit": 25,
+    "total": 7672.5
+  },
+  {
+    "bid_item_num": 600,
+    "description": "Painted Pavement Marking - Durable",
+    "units": "STA",
+    "qty": 86,
+    "per_unit": 145,
+    "total": 12470
+  },
+  {
+    "bid_item_num": 610,
+    "description": "Grooves Cut for Pavement Markings",
+    "units": "STA",
+    "qty": 77.87,
+    "per_unit": 125,
+    "total": 9733.75
+  },
+  {
+    "bid_item_num": 620,
+    "description": "Safety Closure",
+    "units": "EA",
+    "qty": 4,
+    "per_unit": 100,
+    "total": 400
+  },
+  {
+    "bid_item_num": 630,
+    "description": "Temporary Barrier Rail, Concrete",
+    "units": "LF",
+    "qty": 1100,
+    "per_unit": 14,
+    "total": 15400
+  },
+  {
+    "bid_item_num": 650,
+    "description": "Traffic Control",
+    "units": "LS",
+    "qty": 1,
+    "per_unit": 9975,
+    "total": 9975
+  },
+  {
+    "bid_item_num": 670,
+    "description": "Portable Dynamic Message Sign (PDMS)",
+    "units": "CDAY",
+    "qty": 56,
+    "per_unit": 100,
+    "total": 5600
+  },
+  {
+    "bid_item_num": 690,
+    "description": "Temporary Crash Cushion",
+    "units": "EA",
+    "qty": 2,
+    "per_unit": 1150,
+    "total": 2300
+  }
+]

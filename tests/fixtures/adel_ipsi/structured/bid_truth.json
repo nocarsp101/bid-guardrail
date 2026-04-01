@@ -1,0 +1,746 @@
+[
+  {
+    "item_no": "2101-0850001",
+    "description": "CLEARING AND GRUBBING",
+    "unit": "ACRE",
+    "qty": 0.2,
+    "unit_price": 9000,
+    "total_price": 1800
+  },
+  {
+    "item_no": "2101-0850002",
+    "description": "CLEARING AND GRUBBING",
+    "unit": "UNIT",
+    "qty": 197.1,
+    "unit_price": 42,
+    "total_price": 8278.2
+  },
+  {
+    "item_no": "2102-2625000",
+    "description": "EMBANKMENT-IN-PLACE",
+    "unit": "CY",
+    "qty": 8705,
+    "unit_price": 15.75,
+    "total_price": 137103.75
+  },
+  {
+    "item_no": "2102-2710070",
+    "description": "EXCAVATION, CLASS 10, ROADWAY AND BORROW",
+    "unit": "CY",
+    "qty": 4682,
+    "unit_price": 29.47,
+    "total_price": 137978.54
+  },
+  {
+    "item_no": "2102-2712015",
+    "description": "EXCAVATION, CLASS 12, BOULDERS OR ROCK FRAGMENTS",
+    "unit": "CY",
+    "qty": 25,
+    "unit_price": 21,
+    "total_price": 525
+  },
+  {
+    "item_no": "2102-2713090",
+    "description": "EXCAVATION, CLASS 13, WASTE",
+    "unit": "CY",
+    "qty": 282,
+    "unit_price": 21,
+    "total_price": 5922
+  },
+  {
+    "item_no": "2102-4560000",
+    "description": "LOCATING TILE LINES",
+    "unit": "STA",
+    "qty": 28,
+    "unit_price": 400,
+    "total_price": 11200
+  },
+  {
+    "item_no": "2105-8425015",
+    "description": "TOPSOIL, STRIP, SALVAGE AND SPREAD",
+    "unit": "CY",
+    "qty": 4047,
+    "unit_price": 10.5,
+    "total_price": 42493.5
+  },
+  {
+    "item_no": "2107-0875100",
+    "description": "COMPACTION WITH MOISTURE CONTROL",
+    "unit": "CY",
+    "qty": 12191,
+    "unit_price": 0.8,
+    "total_price": 9752.8
+  },
+  {
+    "item_no": "2115-0100000",
+    "description": "MODIFIED SUBBASE",
+    "unit": "CY",
+    "qty": 3876,
+    "unit_price": 63,
+    "total_price": 244188
+  },
+  {
+    "item_no": "2121-7425010",
+    "description": "GRANULAR SHOULDERS, TYPE A",
+    "unit": "TON",
+    "qty": 801,
+    "unit_price": 42,
+    "total_price": 33642
+  },
+  {
+    "item_no": "2122-5190095",
+    "description": "PAVED SHOULDER, P.C. CONCRETE, 9.5 IN.",
+    "unit": "SY",
+    "qty": 1431,
+    "unit_price": 79.75,
+    "total_price": 114122.25
+  },
+  {
+    "item_no": "2123-7450000",
+    "description": "SHOULDER CONSTRUCTION, EARTH",
+    "unit": "STA",
+    "qty": 21.5,
+    "unit_price": 210,
+    "total_price": 4515
+  },
+  {
+    "item_no": "2123-7450020",
+    "description": "SHOULDER FINISHING, EARTH",
+    "unit": "STA",
+    "qty": 15.5,
+    "unit_price": 157.5,
+    "total_price": 2441.25
+  },
+  {
+    "item_no": "2301-1033095",
+    "description": "PCC PAVEMENT, CLASS C, CLASS 3 DURABILITY, 9.5 IN.",
+    "unit": "SY",
+    "qty": 7943,
+    "unit_price": 114.9,
+    "total_price": 912650.7
+  },
+  {
+    "item_no": "2301-4875006",
+    "description": "MEDIAN, P.C. CONCRETE, 6 IN.",
+    "unit": "SY",
+    "qty": 1155,
+    "unit_price": 75,
+    "total_price": 86625
+  },
+  {
+    "item_no": "2301-7000110",
+    "description": "PAYMENT ADJ. I/D FOR PCC PAVEMENT THICKNESS",
+    "unit": "EACH",
+    "qty": 9293,
+    "unit_price": 1,
+    "total_price": 9293
+  },
+  {
+    "item_no": "2315-8275025",
+    "description": "SURFACING, DRIVEWAY, CLASS A CRUSHED STONE",
+    "unit": "TON",
+    "qty": 550,
+    "unit_price": 36.75,
+    "total_price": 20212.5
+  },
+  {
+    "item_no": "2317-7000110",
+    "description": "PAYMENT ADJ. I/D FOR PCC PAVEMENT SMOOTHNESS",
+    "unit": "EACH",
+    "qty": 5957,
+    "unit_price": 1,
+    "total_price": 5957
+  },
+  {
+    "item_no": "2401-6745650",
+    "description": "REMOVAL OF EXISTING STRUCTURES",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 1875,
+    "total_price": 1875
+  },
+  {
+    "item_no": "2401-6745765",
+    "description": "REMOVAL OF LIGHT POLES",
+    "unit": "EACH",
+    "qty": 6,
+    "unit_price": 157.5,
+    "total_price": 945
+  },
+  {
+    "item_no": "2402-0425040",
+    "description": "FLOODED BACKFILL",
+    "unit": "CY",
+    "qty": 4,
+    "unit_price": 91.6,
+    "total_price": 366.4
+  },
+  {
+    "item_no": "2402-2720100",
+    "description": "EXCAVATION, CLASS 20, ROADWAY PIPE CULVERT",
+    "unit": "CY",
+    "qty": 12,
+    "unit_price": 19,
+    "total_price": 228
+  },
+  {
+    "item_no": "2416-0100015",
+    "description": "APRONS, CONCRETE, 15 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 1945,
+    "total_price": 1945
+  },
+  {
+    "item_no": "2416-0100018",
+    "description": "APRONS, CONCRETE, 18 IN. DIA.",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 2000,
+    "total_price": 4000
+  },
+  {
+    "item_no": "2416-0100024",
+    "description": "APRONS, CONCRETE, 24 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 2500,
+    "total_price": 2500
+  },
+  {
+    "item_no": "2416-0100030",
+    "description": "APRONS, CONCRETE, 30 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 3430,
+    "total_price": 3430
+  },
+  {
+    "item_no": "2416-0100054",
+    "description": "APRONS, CONCRETE, 54 IN. DIA.",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 7050,
+    "total_price": 14100
+  },
+  {
+    "item_no": "2416-1180054",
+    "description": "CULVERT, CONCRETE ROADWAY PIPE, 54 IN. DIA.",
+    "unit": "LF",
+    "qty": 31,
+    "unit_price": 532,
+    "total_price": 16492
+  },
+  {
+    "item_no": "2417-1040015",
+    "description": "CULVERT, CORRUGATED METAL ENTRANCE PIPE, 15 IN.",
+    "unit": "LF",
+    "qty": 40,
+    "unit_price": 84,
+    "total_price": 3360
+  },
+  {
+    "item_no": "2435-0140148",
+    "description": "MANHOLE, STORM SEWER, SW-401, 48 IN.",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 5913,
+    "total_price": 5913
+  },
+  {
+    "item_no": "2435-0140160",
+    "description": "MANHOLE, STORM SEWER, SW-401, 60 IN.",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 6260,
+    "total_price": 12520
+  },
+  {
+    "item_no": "2435-0250500",
+    "description": "INTAKE, SW-505",
+    "unit": "EACH",
+    "qty": 3,
+    "unit_price": 4950,
+    "total_price": 14850
+  },
+  {
+    "item_no": "2435-0250600",
+    "description": "INTAKE, SW-506",
+    "unit": "EACH",
+    "qty": 6,
+    "unit_price": 9055,
+    "total_price": 54330
+  },
+  {
+    "item_no": "2502-8212034",
+    "description": "SUBDRAIN, LONGITUDINAL, (SHOULDER) 4 IN.",
+    "unit": "LF",
+    "qty": 4298,
+    "unit_price": 20,
+    "total_price": 85960
+  },
+  {
+    "item_no": "2502-8221303",
+    "description": "SUBDRAIN OUTLET, DR-303",
+    "unit": "EACH",
+    "qty": 15,
+    "unit_price": 305,
+    "total_price": 4575
+  },
+  {
+    "item_no": "2502-8221306",
+    "description": "SUBDRAIN OUTLET, DR-306",
+    "unit": "EACH",
+    "qty": 19,
+    "unit_price": 435,
+    "total_price": 8265
+  },
+  {
+    "item_no": "2503-0114224",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 2000D, 24 IN.",
+    "unit": "LF",
+    "qty": 439,
+    "unit_price": 99,
+    "total_price": 43461
+  },
+  {
+    "item_no": "2503-0114230",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 2000D, 30 IN.",
+    "unit": "LF",
+    "qty": 185,
+    "unit_price": 107,
+    "total_price": 19795
+  },
+  {
+    "item_no": "2503-0114615",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 3750D, 15 IN.",
+    "unit": "LF",
+    "qty": 87,
+    "unit_price": 80,
+    "total_price": 6960
+  },
+  {
+    "item_no": "2503-0114618",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 3750D, 18 IN.",
+    "unit": "LF",
+    "qty": 344,
+    "unit_price": 85,
+    "total_price": 29240
+  },
+  {
+    "item_no": "2507-3250005",
+    "description": "ENGINEERING FABRIC",
+    "unit": "SY",
+    "qty": 318,
+    "unit_price": 4.2,
+    "total_price": 1335.6
+  },
+  {
+    "item_no": "2507-6800061",
+    "description": "REVETMENT, CLASS E",
+    "unit": "TON",
+    "qty": 331,
+    "unit_price": 73.5,
+    "total_price": 24328.5
+  },
+  {
+    "item_no": "2510-6745850",
+    "description": "REMOVAL OF PAVEMENT",
+    "unit": "SY",
+    "qty": 5337,
+    "unit_price": 15.75,
+    "total_price": 84057.75
+  },
+  {
+    "item_no": "2511-6745900",
+    "description": "REMOVAL OF SIDEWALK",
+    "unit": "SY",
+    "qty": 121,
+    "unit_price": 15.75,
+    "total_price": 1905.75
+  },
+  {
+    "item_no": "2511-7526006",
+    "description": "SIDEWALK, P.C. CONCRETE, 6 IN.",
+    "unit": "SY",
+    "qty": 605,
+    "unit_price": 88,
+    "total_price": 53240
+  },
+  {
+    "item_no": "2511-7528101",
+    "description": "DETECTABLE WARNINGS",
+    "unit": "SF",
+    "qty": 80,
+    "unit_price": 40,
+    "total_price": 3200
+  },
+  {
+    "item_no": "2523-0000100",
+    "description": "LIGHTING POLES",
+    "unit": "EACH",
+    "qty": 15,
+    "unit_price": 5700,
+    "total_price": 85500
+  },
+  {
+    "item_no": "2523-0000200",
+    "description": "ELECTRICAL CIRCUITS",
+    "unit": "LF",
+    "qty": 2255,
+    "unit_price": 12.9,
+    "total_price": 29089.5
+  },
+  {
+    "item_no": "2523-0000310",
+    "description": "HANDHOLES AND JUNCTION BOXES",
+    "unit": "EACH",
+    "qty": 6,
+    "unit_price": 1735,
+    "total_price": 10410
+  },
+  {
+    "item_no": "2523-0000400",
+    "description": "CONTROL CABINET",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 14400,
+    "total_price": 14400
+  },
+  {
+    "item_no": "2524-6765010",
+    "description": "REMOVE AND REINSTALL SIGN AS PER PLAN",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 288.75,
+    "total_price": 288.75
+  },
+  {
+    "item_no": "2524-6765016",
+    "description": "REMOVE AND REINSTALL REF LOCATION SIGN",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 288.75,
+    "total_price": 577.5
+  },
+  {
+    "item_no": "2524-6765210",
+    "description": "REMOVAL OF TYPE A SIGN ASSEMBLY",
+    "unit": "EACH",
+    "qty": 9,
+    "unit_price": 105,
+    "total_price": 945
+  },
+  {
+    "item_no": "2524-9276010",
+    "description": "PERFORATED SQUARE STEEL TUBE POSTS",
+    "unit": "LF",
+    "qty": 323.5,
+    "unit_price": 26.9,
+    "total_price": 8702.15
+  },
+  {
+    "item_no": "2524-9276021",
+    "description": "STEEL POST ANCHOR, BREAK-AWAY SOIL",
+    "unit": "EACH",
+    "qty": 19,
+    "unit_price": 105,
+    "total_price": 1995
+  },
+  {
+    "item_no": "2524-9276024",
+    "description": "STEEL POST ANCHOR, BREAK-AWAY CONC",
+    "unit": "EACH",
+    "qty": 13,
+    "unit_price": 267.5,
+    "total_price": 3477.5
+  },
+  {
+    "item_no": "2524-9325001",
+    "description": "TYPE A SIGNS, SHEET ALUMINUM",
+    "unit": "SF",
+    "qty": 884.25,
+    "unit_price": 31.5,
+    "total_price": 27853.88
+  },
+  {
+    "item_no": "2526-8285000",
+    "description": "CONSTRUCTION SURVEY",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 11000,
+    "total_price": 11000
+  },
+  {
+    "item_no": "2527-9263217",
+    "description": "PAINTED PAVEMENT MARKINGS, DURABLE",
+    "unit": "STA",
+    "qty": 86,
+    "unit_price": 152.25,
+    "total_price": 13093.5
+  },
+  {
+    "item_no": "2527-9270112",
+    "description": "GROOVES CUT FOR PAVEMENT MARKINGS",
+    "unit": "STA",
+    "qty": 77.87,
+    "unit_price": 157.5,
+    "total_price": 12264.53
+  },
+  {
+    "item_no": "2528-2518000",
+    "description": "SAFETY CLOSURE",
+    "unit": "EACH",
+    "qty": 4,
+    "unit_price": 105,
+    "total_price": 420
+  },
+  {
+    "item_no": "2528-8400048",
+    "description": "TEMPORARY BARRIER RAIL, CONCRETE",
+    "unit": "LF",
+    "qty": 1100,
+    "unit_price": 14.7,
+    "total_price": 16170
+  },
+  {
+    "item_no": "2528-8400256",
+    "description": "TEMPORARY TRAFFIC SIGNALS",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 16425,
+    "total_price": 16425
+  },
+  {
+    "item_no": "2528-8445110",
+    "description": "TRAFFIC CONTROL",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 10415,
+    "total_price": 10415
+  },
+  {
+    "item_no": "2528-8445113",
+    "description": "FLAGGERS",
+    "unit": "EACH",
+    "qty": 120,
+    "unit_price": 575,
+    "total_price": 69000
+  },
+  {
+    "item_no": "2528-9290050",
+    "description": "PORTABLE DYNAMIC MESSAGE SIGN (PDMS)",
+    "unit": "CDAY",
+    "qty": 56,
+    "unit_price": 105,
+    "total_price": 5880
+  },
+  {
+    "item_no": "2533-4980005",
+    "description": "MOBILIZATION",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 175000,
+    "total_price": 175000
+  },
+  {
+    "item_no": "2551-0000110",
+    "description": "TEMP CRASH CUSHION",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 1207.5,
+    "total_price": 2415
+  },
+  {
+    "item_no": "2599-9999005",
+    "description": "('EACH' ITEM) INTAKE, SW-516",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 8400,
+    "total_price": 8400
+  },
+  {
+    "item_no": "2599-9999010",
+    "description": "('LUMP SUM' ITEM) RRFB, NB EXIT",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 27300,
+    "total_price": 27300
+  },
+  {
+    "item_no": "2599-9999010",
+    "description": "('LUMP SUM' ITEM) RRFB, SB ENTRY",
+    "unit": "LUMP SUM",
+    "qty": 1,
+    "unit_price": 27300,
+    "total_price": 27300
+  },
+  {
+    "item_no": "2599-9999018",
+    "description": "('SY' ITEM) PCC PAVEMENT, COLORED",
+    "unit": "SY",
+    "qty": 385,
+    "unit_price": 116.5,
+    "total_price": 44852.5
+  },
+  {
+    "item_no": "2601-2634100",
+    "description": "MULCHING",
+    "unit": "ACRE",
+    "qty": 7,
+    "unit_price": 509.25,
+    "total_price": 3564.75
+  },
+  {
+    "item_no": "2601-2636043",
+    "description": "SEEDING AND FERTILIZING (RURAL)",
+    "unit": "ACRE",
+    "qty": 1.1,
+    "unit_price": 735,
+    "total_price": 808.5
+  },
+  {
+    "item_no": "2601-2636044",
+    "description": "SEEDING AND FERTILIZING (URBAN)",
+    "unit": "ACRE",
+    "qty": 2.4,
+    "unit_price": 1422.75,
+    "total_price": 3414.6
+  },
+  {
+    "item_no": "2601-2642100",
+    "description": "STABILIZING CROP - SEEDING AND FERT",
+    "unit": "ACRE",
+    "qty": 3.5,
+    "unit_price": 262.5,
+    "total_price": 918.75
+  },
+  {
+    "item_no": "2602-0000020",
+    "description": "SILT FENCE",
+    "unit": "LF",
+    "qty": 2020,
+    "unit_price": 1.84,
+    "total_price": 3716.8
+  },
+  {
+    "item_no": "2602-0000030",
+    "description": "SILT FENCE FOR DITCH CHECKS",
+    "unit": "LF",
+    "qty": 857,
+    "unit_price": 1.84,
+    "total_price": 1576.88
+  },
+  {
+    "item_no": "2602-0000050",
+    "description": "SILT BASINS",
+    "unit": "EACH",
+    "qty": 10,
+    "unit_price": 315,
+    "total_price": 3150
+  },
+  {
+    "item_no": "2602-0000071",
+    "description": "REMOVAL OF SILT FENCE",
+    "unit": "LF",
+    "qty": 1433,
+    "unit_price": 0.2,
+    "total_price": 286.6
+  },
+  {
+    "item_no": "2602-0000080",
+    "description": "REMOVAL OF SILT BASINS",
+    "unit": "EACH",
+    "qty": 5,
+    "unit_price": 50,
+    "total_price": 250
+  },
+  {
+    "item_no": "2602-0000101",
+    "description": "MAINTENANCE OF SILT FENCE",
+    "unit": "LF",
+    "qty": 287,
+    "unit_price": 0.2,
+    "total_price": 57.4
+  },
+  {
+    "item_no": "2602-0000160",
+    "description": "ROCK CHECK DAM",
+    "unit": "LF",
+    "qty": 86,
+    "unit_price": 125,
+    "total_price": 10750
+  },
+  {
+    "item_no": "2602-0000170",
+    "description": "MAINTENANCE OF ROCK CHECK DAM",
+    "unit": "EACH",
+    "qty": 18,
+    "unit_price": 16,
+    "total_price": 288
+  },
+  {
+    "item_no": "2602-0000180",
+    "description": "REMOVAL OF ROCK CHECK DAM",
+    "unit": "EACH",
+    "qty": 6,
+    "unit_price": 31.5,
+    "total_price": 189
+  },
+  {
+    "item_no": "2602-0000312",
+    "description": "PERIMETER AND SLOPE SEDIMENT CONTROL",
+    "unit": "LF",
+    "qty": 1536,
+    "unit_price": 3.1,
+    "total_price": 4761.6
+  },
+  {
+    "item_no": "2602-0000351",
+    "description": "REMOVAL OF PERIMETER AND SLOPE",
+    "unit": "LF",
+    "qty": 1536,
+    "unit_price": 0.32,
+    "total_price": 491.52
+  },
+  {
+    "item_no": "2602-0000530",
+    "description": "GRATE INTAKE SEDIMENT FILTER BAG",
+    "unit": "EACH",
+    "qty": 20,
+    "unit_price": 105,
+    "total_price": 2100
+  },
+  {
+    "item_no": "2602-0000540",
+    "description": "MAINTENANCE OF GRATE INTAKE FILTER",
+    "unit": "EACH",
+    "qty": 20,
+    "unit_price": 5.25,
+    "total_price": 105
+  },
+  {
+    "item_no": "2602-0000550",
+    "description": "REMOVAL OF GRATE INTAKE FILTER BAG",
+    "unit": "EACH",
+    "qty": 20,
+    "unit_price": 5.25,
+    "total_price": 105
+  },
+  {
+    "item_no": "2602-0010010",
+    "description": "MOBILIZATIONS, EROSION CONTROL",
+    "unit": "EACH",
+    "qty": 2,
+    "unit_price": 600,
+    "total_price": 1200
+  },
+  {
+    "item_no": "2602-0010020",
+    "description": "MOBILIZATIONS, EMERGENCY EROSION",
+    "unit": "EACH",
+    "qty": 1,
+    "unit_price": 1200,
+    "total_price": 1200
+  }
+]
