@@ -28,6 +28,7 @@ ALIASES = {
         "LINE NO",
         "LINE #",
         "LINE",
+        "BID ITEM #",  # IPSI-style: "Bid Item #" contains proposal line numbers
     ],
 
     # PAY ITEM / bid item identifier
@@ -64,6 +65,7 @@ ALIASES = {
         "UNIT BID PRICE",
         "UNIT COST",
         "RATE",
+        "PER UNIT",  # IPSI-style: "Per Unit" means unit price
     ],
     "total": [
         "TOTAL",

@@ -15,29 +15,31 @@ from app.quote_reconciliation.ingest import (
 from app.quote_reconciliation.aliases import ALIASES
 
 
-class TestQuoteAliasGaps:
-    """Document the alias gaps that prevent IPSI quote ingestion."""
+class TestQuoteAliasMapping:
+    """Verify IPSI headers are recognized after Phase C-1 alias expansion."""
 
-    def test_bid_item_hash_not_recognized(self):
+    def test_bid_item_hash_is_recognized(self):
         """
         IPSI header 'Bid Item #' normalizes to 'BID ITEM #'.
-        This is NOT in any quote alias list.
+        Phase C-1: now mapped to 'item' (line identifier).
         """
         normalized = norm_header("Bid Item #")
         assert normalized == "BID ITEM #"
-        # Check it's not in 'item' aliases
-        assert normalized not in ALIASES["item"]
-        # Check it's not in 'pay_item' aliases
-        assert normalized not in ALIASES.get("pay_item", [])
+        assert normalized in ALIASES["item"]
 
-    def test_per_unit_not_recognized(self):
+    def test_per_unit_is_recognized(self):
         """
         IPSI header 'Per Unit' normalizes to 'PER UNIT'.
-        This is NOT in unit_price aliases.
+        Phase C-1: now mapped to 'unit_price'.
         """
         normalized = norm_header("Per Unit")
         assert normalized == "PER UNIT"
-        assert normalized not in ALIASES["unit_price"]
+        assert normalized in ALIASES["unit_price"]
+
+    def test_bid_item_hash_not_in_pay_item(self):
+        """'BID ITEM #' should only be in 'item', not 'pay_item' (no ambiguity)."""
+        normalized = norm_header("Bid Item #")
+        assert normalized not in ALIASES.get("pay_item", [])
 
     def test_units_is_recognized(self):
         """'Units' normalizes to 'UNITS' which IS in the unit alias list."""
@@ -67,29 +69,47 @@ class TestQuoteAliasGaps:
 class TestQuoteXlsxIngest:
     """Tests against Unorganized data for IPSI.xlsx (canonical quote truth)."""
 
-    def test_ingest_fails_missing_required_headers(self, quote_xlsx_path):
+    def test_ingest_succeeds(self, quote_xlsx_path):
         """
-        IPSI XLSX has headers: Bid Item #, Description, Units, Quantity, Per Unit, Total
-        'Bid Item #' -> 'BID ITEM #' is not in 'item' aliases -> missing required 'item'
-        'Per Unit' -> 'PER UNIT' is not in 'unit_price' aliases -> missing required 'unit_price'
-        Ingest MUST fail with IngestError.
+        Phase C-1: IPSI XLSX should now ingest successfully.
+        'Bid Item #' -> item, 'Per Unit' -> unit_price.
         """
-        with pytest.raises(IngestError) as exc_info:
-            ingest_quote_lines(str(quote_xlsx_path))
-        error = exc_info.value
-        meta = error.meta or {}
-        missing = meta.get("mapping_missing", [])
-        # Both 'item' and 'unit_price' should be missing
-        assert "item" in missing, f"Expected 'item' in missing, got {missing}"
-        assert "unit_price" in missing, f"Expected 'unit_price' in missing, got {missing}"
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        assert len(rows) > 0
+        assert "mapping_used" in meta
 
-    def test_ingest_error_preserves_meta(self, quote_xlsx_path):
-        """IngestError should carry useful diagnostic metadata."""
-        with pytest.raises(IngestError) as exc_info:
-            ingest_quote_lines(str(quote_xlsx_path))
-        meta = exc_info.value.meta
-        assert "mapping_missing" in meta
-        assert "mapping_ambiguous" in meta
+    def test_ingest_row_count(self, quote_xlsx_path):
+        """IPSI has 14 data rows + 1 TOTAL row. Ingest should return 15 rows
+        (TOTAL row is not filtered by quote ingest — it has no summary skip)."""
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        # 15 raw rows (14 data + 1 TOTAL), but TOTAL row has item=None
+        # which normalizes to "". It still gets included since quote ingest
+        # does not skip summary rows.
+        assert meta["rows_raw_total"] == 15
+
+    def test_ingest_maps_item_to_line_numbers(self, quote_xlsx_path):
+        """Ingested 'item' field should contain proposal line numbers (520, etc.)."""
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        # First row: Bid Item # = 520 -> item = "520"
+        assert rows[0]["item"] == "520"
+
+    def test_ingest_maps_unit_price(self, quote_xlsx_path):
+        """Ingested 'unit_price' should contain the Per Unit values."""
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        # First row: Per Unit = 275
+        assert float(rows[0]["unit_price"]) == 275.0
+
+    def test_ingest_no_missing_required(self, quote_xlsx_path):
+        """No required fields should be missing after alias expansion."""
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        missing = meta.get("mapping_missing", [])
+        assert missing == [] or len(missing) == 0
+
+    def test_ingest_no_ambiguous(self, quote_xlsx_path):
+        """No ambiguous mappings should exist."""
+        rows, meta = ingest_quote_lines(str(quote_xlsx_path))
+        ambiguous = meta.get("mapping_ambiguous", {})
+        assert ambiguous == {} or len(ambiguous) == 0
 
 
 class TestQuoteTruthValues:

@@ -102,7 +102,7 @@ class TestValidateEndpointBidOnly:
 
 
 class TestValidateEndpointQuoteMode:
-    """Test /validate in QUOTE mode — expected to fail at ingest."""
+    """Test /validate in QUOTE mode."""
 
     def test_quote_mode_requires_quote_lines(self, client):
         """QUOTE doc_type requires quote_lines upload."""
@@ -118,11 +118,12 @@ class TestValidateEndpointQuoteMode:
         assert resp.status_code == 400
         assert "quote_lines" in resp.json().get("detail", "").lower()
 
-    def test_quote_mode_ipsi_fails_at_ingest(self, client):
+    def test_quote_mode_ipsi_ingests_but_reconciliation_fails(self, client):
         """
-        Submitting IPSI quote XLSX as quote_lines should fail at ingest
-        because headers 'Bid Item #' and 'Per Unit' are not recognized.
-        Returns 400 with quote_ingest_error.
+        Phase C-1: IPSI quote XLSX now ingests successfully.
+        Endpoint returns 200 and proceeds to reconciliation.
+        Reconciliation FAILs because quote line numbers (520, etc.)
+        don't match bid DOT item numbers (2524-...).
         """
         bid_path = STRUCTURED_DIR / "bid_items.xlsx"
         quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
@@ -136,11 +137,15 @@ class TestValidateEndpointQuoteMode:
                     "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
                 },
             )
-        assert resp.status_code == 400
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
         data = resp.json()
+        assert data["doc_type"] == "QUOTE"
+        assert "quote_summary" in data
+        # All quote lines should be unmatched (line numbers vs DOT items)
         findings = data.get("findings", [])
-        assert any(f.get("type") == "quote_ingest_error" for f in findings), (
-            f"Expected quote_ingest_error finding, got: {[f.get('type') for f in findings]}"
+        unmatched = [f for f in findings if f.get("type") == "quote_line_unmatched"]
+        assert len(unmatched) >= 14, (
+            f"Expected >=14 unmatched findings (line-number gap), got {len(unmatched)}"
         )
 
 
