@@ -191,7 +191,7 @@ class TestReconciliationWithCorrectMapping:
     def test_item_580_quantity_visible_in_comparison(self, bid_rows, mapped_quote_rows):
         """
         Item 580 (DOT 2524-9325001): quote qty=306.9, bid qty=884.25.
-        If this item matches (SF=SF), the comparison should show both quantities.
+        Should appear in comparisons with both quantities visible.
         """
         findings, summary = reconcile_quote_lines_against_bid(bid_rows, mapped_quote_rows)
         comparisons = summary.get("comparisons", [])
@@ -199,12 +199,25 @@ class TestReconciliationWithCorrectMapping:
             c for c in comparisons
             if c.get("match_key_used") == "2524-9325001"
         ]
-        if item_580_comp:
-            comp = item_580_comp[0]
-            assert comp["quote_qty"] == pytest.approx(306.9, rel=1e-6)
-            assert comp["bid_qty"] == pytest.approx(884.25, rel=1e-6)
-        # If item 580 didn't make it to comparisons (e.g. ambiguity from
-        # duplicate DOT items), that's also a valid finding to document
+        assert len(item_580_comp) == 1
+        comp = item_580_comp[0]
+        assert comp["quote_qty"] == pytest.approx(306.9, rel=1e-6)
+        assert comp["bid_qty"] == pytest.approx(884.25, rel=1e-6)
+
+    def test_item_580_produces_quantity_mismatch_finding(self, bid_rows, mapped_quote_rows):
+        """
+        Phase C-4: Item 580 quantity divergence (306.9 vs 884.25) should
+        now produce an explicit quote_bid_quantity_mismatch finding.
+        """
+        findings, summary = reconcile_quote_lines_against_bid(bid_rows, mapped_quote_rows)
+        qty_findings = [f for f in findings if f.type == "quote_bid_quantity_mismatch"
+                        and f.meta.get("quote_qty") == pytest.approx(306.9, rel=1e-6)]
+        assert len(qty_findings) == 1
+        f = qty_findings[0]
+        assert f.severity == "WARN"
+        assert f.meta["bid_qty"] == pytest.approx(884.25, rel=1e-6)
+        assert f.meta["delta"] == pytest.approx(306.9 - 884.25, abs=0.01)
+        assert f.meta["percent_diff"] is not None
 
     def test_duplicate_bid_item_2599_causes_ambiguity(self, bid_rows, mapped_quote_rows):
         """
@@ -387,6 +400,14 @@ class TestReconciliationWithAdapter:
         assert item_580[0]["quote_qty"] == pytest.approx(306.9, rel=1e-6)
         assert item_580[0]["bid_qty"] == pytest.approx(884.25, rel=1e-6)
 
+    def test_item_580_qty_mismatch_finding_exists(self, bid_rows, adapted_quote_rows):
+        """Phase C-4: Item 580 should produce a quantity mismatch finding."""
+        findings, _ = reconcile_quote_lines_against_bid(bid_rows, adapted_quote_rows)
+        qty_findings = [f for f in findings if f.type == "quote_bid_quantity_mismatch"
+                        and f.meta.get("bid_qty") == pytest.approx(884.25, rel=1e-6)]
+        assert len(qty_findings) == 1
+        assert qty_findings[0].severity == "WARN"
+
     def test_total_row_handled_as_missing_unit_price(self, bid_rows, adapted_quote_rows):
         """
         The TOTAL summary row from ingest has unit_price=None.
@@ -397,3 +418,107 @@ class TestReconciliationWithAdapter:
         missing_up = [f for f in findings if f.type == "quote_line_missing_unit_price"]
         # At least 1 from the TOTAL row
         assert len(missing_up) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Phase C-4: Quantity mismatch detection — isolated unit tests
+# ---------------------------------------------------------------------------
+
+class TestQuantityMismatchDetection:
+    """Test quantity mismatch finding behavior with controlled inputs."""
+
+    @staticmethod
+    def _make_bid_rows(items):
+        """Build minimal bid rows for testing."""
+        return [{"_row_index": i, "item": it["item"], "unit": it["unit"],
+                 "qty": it["qty"], "unit_price": it["up"], "total": it.get("total")}
+                for i, it in enumerate(items)]
+
+    @staticmethod
+    def _make_quote_rows(items):
+        """Build minimal quote rows for testing."""
+        return [{"_row_index": i, "item": it["item"], "item_raw": it["item"],
+                 "pay_item": None, "unit": it["unit"], "qty": it["qty"],
+                 "unit_price": it["up"], "total": it.get("total")}
+                for i, it in enumerate(items)]
+
+    def test_matching_quantities_no_finding(self):
+        """Identical quantities should produce no qty mismatch finding."""
+        bid = self._make_bid_rows([{"item": "X1", "unit": "EA", "qty": 10, "up": 5.0}])
+        quote = self._make_quote_rows([{"item": "X1", "unit": "EA", "qty": 10, "up": 4.0}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 0
+
+    def test_tiny_tolerance_no_finding(self):
+        """Differences within floating-point tolerance should not trigger finding."""
+        bid = self._make_bid_rows([{"item": "X1", "unit": "LF", "qty": 100.0, "up": 5.0}])
+        quote = self._make_quote_rows([{"item": "X1", "unit": "LF", "qty": 100.00001, "up": 4.0}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 0
+
+    def test_large_difference_triggers_finding(self):
+        """A real quantity difference should produce a finding."""
+        bid = self._make_bid_rows([{"item": "X1", "unit": "SF", "qty": 884.25, "up": 31.5}])
+        quote = self._make_quote_rows([{"item": "X1", "unit": "SF", "qty": 306.9, "up": 25.0}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 1
+        f = qty_f[0]
+        assert f.severity == "WARN"
+        assert f.meta["quote_qty"] == pytest.approx(306.9)
+        assert f.meta["bid_qty"] == pytest.approx(884.25)
+
+    def test_finding_includes_delta(self):
+        """Finding meta should include computed delta."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "TON", "qty": 100, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "TON", "qty": 80, "up": 9}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 1
+        assert qty_f[0].meta["delta"] == pytest.approx(-20.0)
+
+    def test_finding_includes_percent_diff(self):
+        """Finding meta should include percentage difference."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "CY", "qty": 200, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "CY", "qty": 150, "up": 9}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert qty_f[0].meta["percent_diff"] == pytest.approx(-25.0)
+
+    def test_positive_delta_quote_higher(self):
+        """Quote qty > bid qty should produce positive delta."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "LF", "qty": 50, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "LF", "qty": 75, "up": 8}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert qty_f[0].meta["delta"] == pytest.approx(25.0)
+        assert qty_f[0].meta["percent_diff"] == pytest.approx(50.0)
+
+    def test_zero_bid_qty_no_crash(self):
+        """If bid qty is 0, percent_diff should be None (avoid divide-by-zero)."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "EA", "qty": 0, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "EA", "qty": 5, "up": 8}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 1
+        assert qty_f[0].meta["percent_diff"] is None
+
+    def test_does_not_affect_price_guardrail(self):
+        """Quantity mismatch finding should coexist with price guardrail findings."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "STA", "qty": 100, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "STA", "qty": 200, "up": 15}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        price_f = [f for f in findings if f.type == "quote_unit_price_above_bid_unit_price"]
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(price_f) == 1  # price guardrail still fires
+        assert len(qty_f) == 1    # qty mismatch also fires
+
+    def test_unit_mismatch_blocks_qty_check(self):
+        """If units don't match, qty comparison should NOT be reached."""
+        bid = self._make_bid_rows([{"item": "A1", "unit": "LF", "qty": 100, "up": 10}])
+        quote = self._make_quote_rows([{"item": "A1", "unit": "FURLONGS", "qty": 50, "up": 8}])
+        findings, _ = reconcile_quote_lines_against_bid(bid, quote)
+        qty_f = [f for f in findings if f.type == "quote_bid_quantity_mismatch"]
+        assert len(qty_f) == 0  # not reached — unit mismatch exits early

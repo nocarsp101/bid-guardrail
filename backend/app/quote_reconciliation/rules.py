@@ -5,6 +5,9 @@ from typing import Any, Dict, List, Tuple, Optional
 from app.audit.models import Finding
 from app.utils.unit_canonicalization import canonicalize_unit
 
+# Quantity mismatch tolerance — avoids floating-point noise, does NOT hide real differences.
+_QTY_TOLERANCE = 0.0001
+
 
 def reconcile_quote_lines_against_bid(
     bid_rows: List[Dict[str, Any]],
@@ -182,6 +185,26 @@ def reconcile_quote_lines_against_bid(
                 row_index=q_idx,
                 item_ref=_s(q.get("item")) or _s(q.get("pay_item")) or f"quote_row_{q_idx}",
                 meta={"quote_unit_price": q_up, "bid_unit_price": b_up, "bid_row_index": b_idx},
+            ))
+
+        # Quantity mismatch detection (WARN — informational, not fatal)
+        if abs(q_qty - b_qty) > _QTY_TOLERANCE:
+            delta = round(q_qty - b_qty, 6)
+            pct = round((delta / b_qty) * 100, 2) if b_qty != 0 else None
+            _item_ref = _s(q.get("item")) or _s(q.get("pay_item")) or f"quote_row_{q_idx}"
+            findings.append(Finding(
+                type="quote_bid_quantity_mismatch",
+                severity="WARN",
+                message=f"Quote quantity ({q_qty}) differs from bid quantity ({b_qty}).",
+                row_index=q_idx,
+                item_ref=_item_ref,
+                meta={
+                    "quote_qty": q_qty,
+                    "bid_qty": b_qty,
+                    "delta": delta,
+                    "percent_diff": pct,
+                    "bid_row_index": b_idx,
+                },
             ))
 
     # Totals cross-check (WARN by default)
