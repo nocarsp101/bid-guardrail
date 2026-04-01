@@ -79,13 +79,12 @@ class TestQuoteXlsxIngest:
         assert "mapping_used" in meta
 
     def test_ingest_row_count(self, quote_xlsx_path):
-        """IPSI has 14 data rows + 1 TOTAL row. Ingest should return 15 rows
-        (TOTAL row is not filtered by quote ingest — it has no summary skip)."""
+        """IPSI has 14 data rows + 1 TOTAL row. TOTAL row is filtered as summary.
+        Ingest should return 14 data rows."""
         rows, meta = ingest_quote_lines(str(quote_xlsx_path))
-        # 15 raw rows (14 data + 1 TOTAL), but TOTAL row has item=None
-        # which normalizes to "". It still gets included since quote ingest
-        # does not skip summary rows.
-        assert meta["rows_raw_total"] == 15
+        assert meta["rows_raw_total"] == 15  # 15 raw rows read from file
+        assert meta["rows_skipped_summary"] == 1  # TOTAL row filtered
+        assert len(rows) == 14  # 14 real data rows returned
 
     def test_ingest_maps_item_to_line_numbers(self, quote_xlsx_path):
         """Ingested 'item' field should contain proposal line numbers (520, etc.)."""
@@ -110,6 +109,54 @@ class TestQuoteXlsxIngest:
         rows, meta = ingest_quote_lines(str(quote_xlsx_path))
         ambiguous = meta.get("mapping_ambiguous", {})
         assert ambiguous == {} or len(ambiguous) == 0
+
+
+class TestQuoteSummaryRowFilter:
+    """Phase C-5: Verify summary-row filtering in quote ingest."""
+
+    def test_total_row_filtered(self, quote_xlsx_path):
+        """The TOTAL row (item=None, description='TOTAL') should not appear in output."""
+        rows, _ = ingest_quote_lines(str(quote_xlsx_path))
+        descs = [str(r.get("description", "")).strip().upper() for r in rows]
+        assert "TOTAL" not in descs
+
+    def test_real_data_rows_preserved(self, quote_xlsx_path):
+        """All 14 real IPSI data rows should be preserved."""
+        rows, _ = ingest_quote_lines(str(quote_xlsx_path))
+        items = [r["item"] for r in rows if r["item"]]
+        assert len(items) == 14
+        assert "520" in items
+        assert "690" in items
+
+    def test_subtotal_would_be_filtered(self):
+        """A row with item='' and description='SUBTOTAL' should be detected as summary."""
+        from app.quote_reconciliation.ingest import _is_summary_row
+        row = {"item": "", "description": "Subtotal"}
+        assert _is_summary_row(row) is True
+
+    def test_grand_total_would_be_filtered(self):
+        """A row with item='' and description='Grand Total' should be detected as summary."""
+        from app.quote_reconciliation.ingest import _is_summary_row
+        row = {"item": "", "description": "Grand Total"}
+        assert _is_summary_row(row) is True
+
+    def test_item_with_total_in_name_not_filtered(self):
+        """A row with a real item number should NOT be filtered even if desc says 'total'."""
+        from app.quote_reconciliation.ingest import _is_summary_row
+        row = {"item": "580", "description": "Total coverage area"}
+        assert _is_summary_row(row) is False
+
+    def test_normal_row_not_filtered(self):
+        """A normal quote row should not be filtered."""
+        from app.quote_reconciliation.ingest import _is_summary_row
+        row = {"item": "520", "description": "Remove and Reinstall Sign"}
+        assert _is_summary_row(row) is False
+
+    def test_empty_row_not_treated_as_summary(self):
+        """A fully empty row is not summary (no summary token in description)."""
+        from app.quote_reconciliation.ingest import _is_summary_row
+        row = {"item": "", "description": ""}
+        assert _is_summary_row(row) is False
 
 
 class TestQuoteTruthValues:

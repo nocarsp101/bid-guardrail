@@ -144,9 +144,13 @@ class TestValidateEndpointQuoteMode:
         # All quote lines should be unmatched (line numbers vs DOT items)
         findings = data.get("findings", [])
         unmatched = [f for f in findings if f.get("type") == "quote_line_unmatched"]
-        assert len(unmatched) >= 14, (
-            f"Expected >=14 unmatched findings (line-number gap), got {len(unmatched)}"
+        # Phase C-5: TOTAL row filtered at ingest, so exactly 14 data rows remain
+        assert len(unmatched) == 14, (
+            f"Expected 14 unmatched findings (line-number gap), got {len(unmatched)}"
         )
+        # No spurious missing_unit_price from TOTAL row
+        missing_up = [f for f in findings if f.get("type") == "quote_line_missing_unit_price"]
+        assert len(missing_up) == 0
 
 
 def _minimal_pdf() -> bytes:

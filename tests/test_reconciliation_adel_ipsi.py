@@ -408,16 +408,14 @@ class TestReconciliationWithAdapter:
         assert len(qty_findings) == 1
         assert qty_findings[0].severity == "WARN"
 
-    def test_total_row_handled_as_missing_unit_price(self, bid_rows, adapted_quote_rows):
+    def test_no_spurious_missing_unit_price(self, bid_rows, adapted_quote_rows):
         """
-        The TOTAL summary row from ingest has unit_price=None.
-        Reconciliation catches this with missing_unit_price check (before
-        reaching the identifier check), and does not crash.
+        Phase C-5: TOTAL summary row is now filtered at ingest.
+        No spurious missing_unit_price finding should appear.
         """
         findings, _ = reconcile_quote_lines_against_bid(bid_rows, adapted_quote_rows)
         missing_up = [f for f in findings if f.type == "quote_line_missing_unit_price"]
-        # At least 1 from the TOTAL row
-        assert len(missing_up) >= 1
+        assert len(missing_up) == 0
 
 
 # ---------------------------------------------------------------------------

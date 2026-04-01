@@ -129,6 +129,11 @@ def ingest_quote_lines(file_path: str) -> Tuple[List[NormalizedRow], Meta]:
         if total is None and qty is not None and up is not None:
             norm["total"] = float(qty) * float(up)
 
+        if _is_summary_row(norm):
+            meta.setdefault("rows_skipped_summary", 0)
+            meta["rows_skipped_summary"] += 1
+            continue
+
         rows.append(norm)
 
     return rows, meta
@@ -213,3 +218,22 @@ def _read_xlsx_first_sheet(path: str) -> Tuple[List[Dict[str, Any]], List[str]]:
         rows.append(row_dict)
 
     return rows, headers
+
+
+def _is_summary_row(norm: Dict[str, Any]) -> bool:
+    """
+    Conservative summary-row detection for quote ingest.
+
+    A row is considered a summary row only when:
+      - item is empty (no item identifier)
+      - description contains a summary token (TOTAL, SUBTOTAL, etc.)
+
+    This is intentionally narrow to avoid filtering real quote items.
+    """
+    item = str(norm.get("item", "") or "").strip()
+    if item:
+        return False
+
+    desc = str(norm.get("description", "") or "").strip().upper()
+    summary_tokens = ("TOTAL", "SUBTOTAL", "SUB TOTAL", "GRAND TOTAL", "BID TOTAL", "QUOTE TOTAL")
+    return any(tok in desc for tok in summary_tokens)
