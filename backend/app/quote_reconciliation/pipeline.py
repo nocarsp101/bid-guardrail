@@ -58,4 +58,21 @@ def run_structured_pipeline(
         quote_rows=quote_rows,
     )
 
+    # Stage 4: Unmatched enrichment (post-reconciliation, informational only)
+    # When unmatched findings exist, surface the available bid items so the
+    # operator can build or correct a line-to-item mapping.
+    unmatched_findings = [f for f in findings if f.type == "quote_line_unmatched"]
+    if unmatched_findings:
+        bid_item_list = sorted(set(
+            str(b.get("item", "")).strip()
+            for b in bid_rows
+            if str(b.get("item", "")).strip()
+        ))
+        quote_summary["available_bid_items"] = bid_item_list
+        quote_summary["mapping_hint"] = (
+            f"{len(unmatched_findings)} quote line(s) could not be matched to bid items. "
+            f"Upload or save a line-to-item mapping JSON to resolve. "
+            f"{len(bid_item_list)} bid items available."
+        )
+
     return findings, quote_summary, quote_ingest_meta

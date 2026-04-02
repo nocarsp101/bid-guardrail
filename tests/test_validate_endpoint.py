@@ -23,12 +23,13 @@ def client(tmp_path, monkeypatch):
     Patches BID_GUARDRAIL_DATA_DIR so RunStorage uses tmp_path.
     """
     import app.main as main_module
-    # Re-initialize storage with tmp_path
     from app.storage.local_fs import RunStorage
     from app.audit.writer import AuditWriter
+    from app.storage.mapping_store import MappingStore
 
     monkeypatch.setattr(main_module, "storage", RunStorage(str(tmp_path)))
     monkeypatch.setattr(main_module, "audit", AuditWriter(str(tmp_path)))
+    monkeypatch.setattr(main_module, "mapping_store", MappingStore(str(tmp_path)))
 
     return TestClient(app)
 
@@ -321,6 +322,255 @@ class TestValidateEndpointContractHardening:
         assert resp.status_code == 200
         data = resp.json()
         assert data["quote_summary"] is None
+
+
+class TestMappingEndpoints:
+    """C7: /mapping/save, /mapping/list, /mapping/{name} CRUD tests."""
+
+    def test_save_mapping_valid(self, client):
+        """POST /mapping/save with valid JSON succeeds."""
+        mapping_json = b'{"520": "2524-6765010", "530": "2524-6765020"}'
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "test-mapping", "actor": "test-harness"},
+            files={"mapping": ("mapping.json", io.BytesIO(mapping_json), "application/json")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "test-mapping"
+        assert data["entry_count"] == 2
+        assert data["saved_by"] == "test-harness"
+
+    def test_save_mapping_bad_name_rejected(self, client):
+        """Names with spaces or special chars are rejected."""
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "bad name!", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b'{}'), "application/json")},
+        )
+        assert resp.status_code == 400
+        assert "alphanumeric" in resp.json()["detail"]
+
+    def test_save_mapping_bad_json_rejected(self, client):
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "test", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b"NOT JSON"), "application/json")},
+        )
+        assert resp.status_code == 400
+
+    def test_save_mapping_non_dict_rejected(self, client):
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "test", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b"[1,2]"), "application/json")},
+        )
+        assert resp.status_code == 400
+        assert "json object" in resp.json()["detail"].lower()
+
+    def test_list_mappings_empty(self, client):
+        resp = client.get("/mapping/list")
+        assert resp.status_code == 200
+        assert resp.json()["mappings"] == []
+
+    def test_list_mappings_after_save(self, client):
+        client.post(
+            "/mapping/save",
+            data={"name": "alpha", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
+        )
+        resp = client.get("/mapping/list")
+        assert "alpha" in resp.json()["mappings"]
+
+    def test_get_mapping_found(self, client):
+        client.post(
+            "/mapping/save",
+            data={"name": "alpha", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
+        )
+        resp = client.get("/mapping/alpha")
+        assert resp.status_code == 200
+        assert resp.json()["mapping"] == {"1": "A"}
+
+    def test_get_mapping_not_found(self, client):
+        resp = client.get("/mapping/nonexistent")
+        assert resp.status_code == 404
+
+
+class TestMappingAutoLoad:
+    """C7: /validate auto-loads saved mapping via mapping_name."""
+
+    def _save_full_mapping(self, client):
+        """Helper: save the Adel/IPSI full mapping to the store."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "adel-ipsi", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(mapping_bytes), "application/json")},
+        )
+        assert resp.status_code == 200
+
+    def test_validate_with_mapping_name_auto_loads(self, client):
+        """QUOTE mode + mapping_name -> mapping auto-loaded, all 14 lines match."""
+        self._save_full_mapping(client)
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE", "mapping_name": "adel-ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+        assert data["quote_summary"]["ingestion"]["line_mapping_applied"] is True
+        unmatched = [f for f in data["findings"] if f["type"] == "quote_line_unmatched"]
+        assert len(unmatched) == 0
+
+    def test_validate_mapping_name_not_found(self, client):
+        """mapping_name referencing non-existent mapping -> 404."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE", "mapping_name": "nonexistent"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 404
+
+    def test_validate_mapping_name_without_quote_lines_rejected(self, client):
+        """mapping_name without quote_lines -> 400."""
+        self._save_full_mapping(client)
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        pdf_bytes = _minimal_pdf()
+        with open(bid_path, "rb") as bf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "PRIME_BID", "mapping_name": "adel-ipsi"},
+                files={
+                    "pdf": ("test.pdf", io.BytesIO(pdf_bytes), "application/pdf"),
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 400
+        assert "mapping_name" in resp.json()["detail"]
+
+    def test_file_upload_takes_precedence_over_mapping_name(self, client):
+        """When both file and mapping_name provided, file upload wins."""
+        import json as _json
+
+        # Save a mapping with ONE entry
+        client.post(
+            "/mapping/save",
+            data={"name": "partial", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"520": "WRONG-ITEM"}'), "application/json")},
+        )
+
+        # Upload the CORRECT full mapping as file
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE", "mapping_name": "partial"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        # File upload (correct full mapping) used -> all matched
+        unmatched = [f for f in data["findings"] if f["type"] == "quote_line_unmatched"]
+        assert len(unmatched) == 0
+
+
+class TestUnmatchedEnrichment:
+    """C7: Pipeline enrichment when quote lines are unmatched."""
+
+    def test_unmatched_shows_available_bid_items(self, client):
+        """When lines are unmatched (no mapping), quote_summary includes available_bid_items."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        data = resp.json()
+        qs = data["quote_summary"]
+        assert "available_bid_items" in qs
+        assert len(qs["available_bid_items"]) > 0
+        # Bid items should be DOT-style numbers like 2524-6765010
+        assert any("-" in item for item in qs["available_bid_items"])
+        assert "mapping_hint" in qs
+
+    def test_unmatched_enrichment_hint_message(self, client):
+        """mapping_hint should mention the unmatched count."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        data = resp.json()
+        hint = data["quote_summary"]["mapping_hint"]
+        assert "14" in hint  # 14 unmatched lines
+        assert "mapping" in hint.lower()
+
+    def test_no_enrichment_when_all_matched(self, client):
+        """When all lines match (with mapping), no available_bid_items in summary."""
+        import json as _json
+
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        data = resp.json()
+        qs = data["quote_summary"]
+        assert "available_bid_items" not in qs
+        assert "mapping_hint" not in qs
 
 
 def _minimal_pdf() -> bytes:

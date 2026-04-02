@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.storage.local_fs import RunStorage
+from app.storage.mapping_store import MappingStore
 from app.pdf_validation.integrity import validate_pdf_integrity
 from app.pdf_validation.context import adjust_pdf_findings_by_doc_type
 
@@ -37,12 +38,67 @@ app.add_middleware(
 
 storage = RunStorage(DATA_DIR)
 audit = AuditWriter(DATA_DIR)
+mapping_store = MappingStore(DATA_DIR)
 
 
 @app.get("/health")
 def health():
     return {"status": "ok", "app": APP_NAME}
 
+
+# ---------------------------------------------------------------------------
+# Mapping CRUD
+# ---------------------------------------------------------------------------
+
+def _is_valid_mapping_name(name: str) -> bool:
+    """Alphanumeric, hyphens, and underscores only."""
+    return bool(name) and all(c.isalnum() or c in ("-", "_") for c in name)
+
+
+@app.post("/mapping/save")
+async def save_mapping(
+    name: str = Form(..., description="Mapping name (alphanumeric, hyphens, underscores)"),
+    actor: str = Form(..., description="User or system saving the mapping"),
+    mapping: UploadFile = File(..., description='JSON file: {"line_number": "dot_item", ...}'),
+):
+    """Save a line-to-item mapping for reuse in /validate via mapping_name."""
+    name = name.strip()
+    if not _is_valid_mapping_name(name):
+        raise HTTPException(
+            status_code=400,
+            detail="name must be alphanumeric with hyphens/underscores only",
+        )
+
+    mapping_bytes = await mapping.read()
+    try:
+        mapping_dict = json.loads(mapping_bytes)
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"mapping must be valid JSON: {e}")
+    if not isinstance(mapping_dict, dict):
+        raise HTTPException(status_code=400, detail="mapping must be a JSON object")
+
+    record = mapping_store.save(name, mapping_dict, actor.strip())
+    return record
+
+
+@app.get("/mapping/list")
+def list_mappings():
+    """List all saved mapping names."""
+    return {"mappings": mapping_store.list_names()}
+
+
+@app.get("/mapping/{name}")
+def get_mapping(name: str):
+    """Retrieve a saved mapping by name."""
+    try:
+        return mapping_store.load_record(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Mapping not found: {name}")
+
+
+# ---------------------------------------------------------------------------
+# Validation
+# ---------------------------------------------------------------------------
 
 @app.post("/validate")
 async def validate(
@@ -75,6 +131,10 @@ async def validate(
             'Optional JSON file mapping proposal line numbers to DOT item numbers, '
             'e.g. {"520": "2524-6765010"}. Only used when quote_lines is provided.'
         ),
+    ),
+    mapping_name: Optional[str] = Form(
+        None,
+        description="Name of a saved mapping to auto-load (alternative to uploading line_to_item_mapping file)",
     ),
 ):
     """
@@ -109,6 +169,12 @@ async def validate(
         raise HTTPException(
             status_code=400,
             detail="line_to_item_mapping requires quote_lines (mapping has no target without quote data)",
+        )
+
+    if mapping_name and mapping_name.strip() and quote_lines is None:
+        raise HTTPException(
+            status_code=400,
+            detail="mapping_name requires quote_lines (mapping has no target without quote data)",
         )
 
     run = storage.create_run(actor=actor)
@@ -222,6 +288,15 @@ async def validate(
                     status_code=400,
                     detail="line_to_item_mapping must be a JSON object mapping line numbers to item numbers",
                 )
+            checks_executed.append("line_number_mapping")
+        elif mapping_name and mapping_name.strip():
+            mapping_name_clean = mapping_name.strip()
+            if not mapping_store.exists(mapping_name_clean):
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Saved mapping not found: {mapping_name_clean}",
+                )
+            mapping_dict = mapping_store.load(mapping_name_clean)
             checks_executed.append("line_number_mapping")
 
         # IMPORTANT: catch pipeline errors so we never 500

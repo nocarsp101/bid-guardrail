@@ -1,0 +1,117 @@
+🧱 MISSION: C7_MAPPING_LAYER
+
+🎯 OBJECTIVE
+
+Eliminate manual JSON mapping by introducing a persistent mapping layer that can be saved, reused, and auto-applied during validation.
+
+---
+
+🧠 CONTEXT
+
+C6 + C6B proved:
+- structured pipeline works
+- mapping works
+- manual JSON is required today
+
+This is not acceptable for production usage.
+
+---
+
+🧱 SCOPE
+
+IN SCOPE:
+- mapping persistence
+- mapping retrieval
+- auto-application in /validate
+- mapping save endpoint
+- unmatched output improvements
+
+OUT OF SCOPE:
+- UI
+- fuzzy matching
+- PDF ingestion
+- changing reconciliation logic
+
+---
+
+🧩 IMPLEMENTATION
+
+STEP 1 — Create mapping storage
+
+Simple version:
+- JSON file storage OR lightweight DB table
+
+Structure:
+project_id + vendor + mapping dict
+
+---
+
+STEP 2 — Create save endpoint
+
+POST /mapping/save
+
+Validates:
+- mapping is dict
+- keys/values are strings
+
+Stores mapping
+
+---
+
+STEP 3 — Modify /validate
+
+Flow:
+
+IF mapping file provided:
+    use it
+
+ELSE IF stored mapping exists:
+    load and apply
+
+ELSE:
+    run without mapping
+    return unmatched
+
+---
+
+STEP 4 — Add unmatched enrichment
+
+Return unmatched lines with:
+- line number
+- possible candidates (basic heuristic allowed)
+
+---
+
+STEP 5 — Tests
+
+- mapping save works
+- mapping loads correctly
+- validate uses stored mapping
+- no regression in existing tests
+
+---
+
+📊 SUCCESS
+
+- no JSON upload required after first mapping
+- mapping persists across runs
+- unmatched still fail-closed
+- tests pass
+
+---
+
+🚫 STOP CONDITIONS
+
+- modifying reconciliation logic
+- adding guessing inside engine
+- breaking deterministic behavior
+
+---
+
+🧾 AUDIT OUTPUT REQUIRED
+
+- files created
+- files modified
+- mapping storage design
+- example flow (before vs after)
+- test results
