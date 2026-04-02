@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.storage.local_fs import RunStorage
 from app.storage.mapping_store import MappingStore
@@ -21,6 +21,8 @@ from app.audit.models import AuditEvent, Finding, OverrideInfo
 from app.audit.writer import AuditWriter
 
 from app.quote_reconciliation.pipeline import run_structured_pipeline
+from app.operator_report import build_operator_report
+from app.export_report import render_html, render_csv
 
 
 APP_NAME = "Bid Guardrail MVP (Week-2)"
@@ -441,6 +443,161 @@ async def validate(
         "quote_summary": quote_summary,
         "audit_log": storage.audit_log_path(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Operator report wrapper
+# ---------------------------------------------------------------------------
+
+@app.post("/validate/report")
+async def validate_report(
+    actor: str = Form(..., description="User or system identity performing the validation"),
+    doc_type: str = Form(
+        "PRIME_BID",
+        description="Validation mode: PRIME_BID (pdf + bid_items) or QUOTE (bid_items + quote_lines)",
+    ),
+    pdf: Optional[UploadFile] = File(None, description="PDF document (required for PRIME_BID)"),
+    bid_items: Optional[UploadFile] = File(None, description="Bid items CSV/XLSX (always required)"),
+    override: Optional[bool] = Form(False, description="Override FAIL findings"),
+    override_reason: Optional[str] = Form(None, description="Justification when override=true"),
+    override_actor: Optional[str] = Form(None, description="Actor authorizing override"),
+    quote_lines: Optional[UploadFile] = File(None, description="Quote lines CSV/XLSX (required for QUOTE)"),
+    line_to_item_mapping: Optional[UploadFile] = File(None, description="Mapping JSON file"),
+    mapping_name: Optional[str] = Form(None, description="Saved mapping name"),
+    project: Optional[str] = Form(None, description="Project for auto-selecting mapping"),
+    vendor: Optional[str] = Form(None, description="Vendor for auto-selecting mapping"),
+):
+    """
+    Run validation and return an **operator-readable report**.
+
+    Same inputs as `/validate`. Response wraps the full validation output with:
+    - **run_summary** — status, description, finding counts
+    - **mapping_provenance** — what mapping was used and how it was selected
+    - **counts** — matched/unmatched/violations at a glance
+    - **key_findings** — findings grouped by category with operator-readable summaries
+    - **next_action** — single most important action for the operator
+    - **detail** — full raw `/validate` response preserved for drill-down
+    """
+    raw = await validate(
+        actor=actor, doc_type=doc_type, pdf=pdf, bid_items=bid_items,
+        override=override, override_reason=override_reason,
+        override_actor=override_actor, quote_lines=quote_lines,
+        line_to_item_mapping=line_to_item_mapping,
+        mapping_name=mapping_name, project=project, vendor=vendor,
+    )
+
+    # validate() returns dict on success, JSONResponse on ingest errors
+    if isinstance(raw, JSONResponse):
+        body = json.loads(raw.body)
+        return JSONResponse(build_operator_report(body), status_code=raw.status_code)
+
+    return build_operator_report(raw)
+
+
+# ---------------------------------------------------------------------------
+# Export endpoints  (thin wrappers: validate -> report -> render)
+# ---------------------------------------------------------------------------
+
+async def _run_report(
+    actor, doc_type, pdf, bid_items, override, override_reason,
+    override_actor, quote_lines, line_to_item_mapping,
+    mapping_name, project, vendor,
+) -> Dict[str, Any]:
+    """Shared helper: run validation, build operator report, return dict."""
+    raw = await validate(
+        actor=actor, doc_type=doc_type, pdf=pdf, bid_items=bid_items,
+        override=override, override_reason=override_reason,
+        override_actor=override_actor, quote_lines=quote_lines,
+        line_to_item_mapping=line_to_item_mapping,
+        mapping_name=mapping_name, project=project, vendor=vendor,
+    )
+    if isinstance(raw, JSONResponse):
+        return build_operator_report(json.loads(raw.body))
+    return build_operator_report(raw)
+
+
+@app.post("/validate/export/json")
+async def export_json(
+    actor: str = Form(...), doc_type: str = Form("PRIME_BID"),
+    pdf: Optional[UploadFile] = File(None),
+    bid_items: Optional[UploadFile] = File(None),
+    override: Optional[bool] = Form(False),
+    override_reason: Optional[str] = Form(None),
+    override_actor: Optional[str] = Form(None),
+    quote_lines: Optional[UploadFile] = File(None),
+    line_to_item_mapping: Optional[UploadFile] = File(None),
+    mapping_name: Optional[str] = Form(None),
+    project: Optional[str] = Form(None),
+    vendor: Optional[str] = Form(None),
+):
+    """Download the operator report as a JSON file."""
+    report = await _run_report(
+        actor, doc_type, pdf, bid_items, override, override_reason,
+        override_actor, quote_lines, line_to_item_mapping,
+        mapping_name, project, vendor,
+    )
+    run_id = report.get("run_summary", {}).get("run_id", "report")
+    return Response(
+        content=json.dumps(report, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{run_id}.json"'},
+    )
+
+
+@app.post("/validate/export/html")
+async def export_html(
+    actor: str = Form(...), doc_type: str = Form("PRIME_BID"),
+    pdf: Optional[UploadFile] = File(None),
+    bid_items: Optional[UploadFile] = File(None),
+    override: Optional[bool] = Form(False),
+    override_reason: Optional[str] = Form(None),
+    override_actor: Optional[str] = Form(None),
+    quote_lines: Optional[UploadFile] = File(None),
+    line_to_item_mapping: Optional[UploadFile] = File(None),
+    mapping_name: Optional[str] = Form(None),
+    project: Optional[str] = Form(None),
+    vendor: Optional[str] = Form(None),
+):
+    """Download a human-readable HTML validation report."""
+    report = await _run_report(
+        actor, doc_type, pdf, bid_items, override, override_reason,
+        override_actor, quote_lines, line_to_item_mapping,
+        mapping_name, project, vendor,
+    )
+    run_id = report.get("run_summary", {}).get("run_id", "report")
+    return Response(
+        content=render_html(report),
+        media_type="text/html",
+        headers={"Content-Disposition": f'attachment; filename="{run_id}.html"'},
+    )
+
+
+@app.post("/validate/export/csv")
+async def export_csv(
+    actor: str = Form(...), doc_type: str = Form("PRIME_BID"),
+    pdf: Optional[UploadFile] = File(None),
+    bid_items: Optional[UploadFile] = File(None),
+    override: Optional[bool] = Form(False),
+    override_reason: Optional[str] = Form(None),
+    override_actor: Optional[str] = Form(None),
+    quote_lines: Optional[UploadFile] = File(None),
+    line_to_item_mapping: Optional[UploadFile] = File(None),
+    mapping_name: Optional[str] = Form(None),
+    project: Optional[str] = Form(None),
+    vendor: Optional[str] = Form(None),
+):
+    """Download findings as a CSV spreadsheet."""
+    report = await _run_report(
+        actor, doc_type, pdf, bid_items, override, override_reason,
+        override_actor, quote_lines, line_to_item_mapping,
+        mapping_name, project, vendor,
+    )
+    run_id = report.get("run_summary", {}).get("run_id", "report")
+    return Response(
+        content=render_csv(report),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{run_id}.csv"'},
+    )
 
 
 def compute_overall_status(findings: List[Finding]) -> str:

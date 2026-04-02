@@ -912,6 +912,411 @@ class TestMappingSourceMetadata:
         assert ing["mapping_name_used"] == "explicit-pick"
 
 
+class TestOperatorReport:
+    """C7C: /validate/report operator workflow layer."""
+
+    def test_report_structure_keys(self, client):
+        """Report has all required top-level sections."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        required = {"run_summary", "mapping_provenance", "counts", "key_findings", "next_action", "detail"}
+        assert required.issubset(data.keys()), f"Missing: {required - data.keys()}"
+
+    def test_detail_preserves_raw_response(self, client):
+        """detail section contains the full raw /validate output."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        detail = resp.json()["detail"]
+        assert "run_id" in detail
+        assert "findings" in detail
+        assert "bid_summary" in detail
+        assert "quote_summary" in detail
+
+    def test_unmatched_run_summary(self, client):
+        """14 unmatched lines -> FAIL status, description mentions unmatched count."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        rs = resp.json()["run_summary"]
+        assert rs["overall_status"] == "FAIL"
+        assert "14" in rs["status_description"]
+        assert "unmatched" in rs["status_description"].lower()
+        assert rs["fail_count"] == 14
+
+    def test_unmatched_next_action_create_mapping(self, client):
+        """No mapping applied + unmatched -> next_action='create_mapping'."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        na = resp.json()["next_action"]
+        assert na["action"] == "create_mapping"
+        assert "/mapping/save" in na["description"]
+
+    def test_unmatched_key_findings_categorized(self, client):
+        """Unmatched lines appear as grouped key_finding with items list."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        kf = resp.json()["key_findings"]
+        unmatched_group = [g for g in kf if g["category"] == "unmatched_lines"]
+        assert len(unmatched_group) == 1
+        assert unmatched_group[0]["count"] == 14
+        assert unmatched_group[0]["severity"] == "FAIL"
+        assert len(unmatched_group[0]["items"]) == 14
+
+    def test_unmatched_counts(self, client):
+        """Counts reflect 0 matched, 14 unmatched."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        c = resp.json()["counts"]
+        assert c["matched"] == 0
+        assert c["unmatched"] == 14
+        assert c["bid_items_in_file"] is not None
+
+    def test_mapping_provenance_no_mapping(self, client):
+        """No mapping -> provenance says so."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        mp = resp.json()["mapping_provenance"]
+        assert mp["mapping_applied"] is False
+        assert mp["mapping_source"] is None
+        assert "no" in mp["description"].lower()
+
+    def test_with_mapping_report_shows_pass_and_warnings(self, client):
+        """With correct mapping -> all matched, next_action reflects warnings (qty mismatch)."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        # Run summary
+        rs = data["run_summary"]
+        assert rs["overall_status"] == "WARN"
+        assert rs["fail_count"] == 0
+
+        # Mapping provenance
+        mp = data["mapping_provenance"]
+        assert mp["mapping_applied"] is True
+        assert mp["mapping_source"] == "file_upload"
+
+        # Counts: all 14 matched
+        c = data["counts"]
+        assert c["matched"] == 14
+        assert c["unmatched"] == 0
+
+        # No unmatched key_findings
+        kf_unmatched = [g for g in data["key_findings"] if g["category"] == "unmatched_lines"]
+        assert len(kf_unmatched) == 0
+
+        # Qty mismatches should appear
+        kf_qty = [g for g in data["key_findings"] if g["category"] == "quantity_mismatches"]
+        assert len(kf_qty) == 1
+        assert kf_qty[0]["severity"] == "WARN"
+
+        # Next action: review_warnings (no FAILs, but WARNs exist)
+        assert data["next_action"]["action"] == "review_warnings"
+
+    def test_mapping_provenance_auto_selected(self, client):
+        """Auto-selected mapping -> provenance reflects it."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        client.post(
+            "/mapping/save",
+            data={"name": "adel-ipsi", "actor": "test", "project": "adel", "vendor": "ipsi"},
+            files={"mapping": ("m.json", io.BytesIO(_json.dumps(full_mapping).encode()), "application/json")},
+        )
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        mp = resp.json()["mapping_provenance"]
+        assert mp["mapping_source"] == "auto_selected"
+        assert mp["mapping_name_used"] == "adel-ipsi"
+        assert "auto-selected" in mp["description"].lower()
+
+    def test_prime_bid_report(self, client):
+        """PRIME_BID mode -> report works, no quote-specific sections populated."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        pdf_bytes = _minimal_pdf()
+        with open(bid_path, "rb") as bf:
+            resp = client.post(
+                "/validate/report",
+                data={"actor": "test", "doc_type": "PRIME_BID"},
+                files={
+                    "pdf": ("test.pdf", io.BytesIO(pdf_bytes), "application/pdf"),
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "run_summary" in data
+        # No quote counts
+        assert "matched" not in data["counts"]
+        # Mapping provenance reflects no quote
+        assert "PRIME_BID" in data["mapping_provenance"]["description"]
+
+
+class TestExportEndpoints:
+    """C7D: /validate/export/html, /validate/export/csv, /validate/export/json."""
+
+    # -- HTML --
+
+    def test_html_export_content_type(self, client):
+        """HTML export returns text/html with attachment header."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/html",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        assert "text/html" in resp.headers["content-type"]
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+    def test_html_export_contains_status(self, client):
+        """HTML contains the overall status and description."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/html",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        html = resp.text
+        assert "FAIL" in html
+        assert "unmatched" in html.lower()
+
+    def test_html_export_contains_mapping_provenance(self, client):
+        """HTML mentions mapping status."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/html",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        html = resp.text
+        assert "Mapping" in html
+        assert "No line-to-item mapping" in html
+
+    def test_html_export_contains_next_action(self, client):
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/html",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert "create_mapping" in resp.text
+
+    def test_html_export_with_mapping_has_comparisons(self, client):
+        """With mapping applied, HTML contains the comparisons table."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/html",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        html = resp.text
+        assert "Comparisons" in html
+        assert "2524-6765010" in html  # first mapped DOT item
+
+    # -- CSV --
+
+    def test_csv_export_content_type(self, client):
+        """CSV export returns text/csv with attachment header."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/csv",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        assert "text/csv" in resp.headers["content-type"]
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+    def test_csv_export_has_header_and_data(self, client):
+        """CSV has column header row and finding data rows."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/csv",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        lines = [l.strip() for l in resp.text.strip().splitlines() if l.strip()]
+        data_lines = [l for l in lines if not l.startswith("#")]
+        # Should have header + 14 finding rows
+        assert len(data_lines) >= 15, f"Expected header + data rows, got {len(data_lines)}: {data_lines[:3]}"
+        assert "severity" in data_lines[0]
+
+    def test_csv_export_contains_mapping_provenance(self, client):
+        """CSV header comments include mapping info."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/csv",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        text = resp.text
+        assert "Mapping" in text
+        assert "create_mapping" in text
+
+    # -- JSON --
+
+    def test_json_export_content_type_and_download(self, client):
+        """JSON export returns application/json with attachment header."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate/export/json",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        assert "application/json" in resp.headers["content-type"]
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        # Should be parseable and have report structure
+        data = resp.json()
+        assert "run_summary" in data
+        assert "detail" in data
+
+
 def _minimal_pdf() -> bytes:
     """Generate a minimal valid PDF (1 page, no content)."""
     import fitz

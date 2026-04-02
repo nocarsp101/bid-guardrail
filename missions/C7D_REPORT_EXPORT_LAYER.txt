@@ -1,0 +1,330 @@
+🧱 MISSION: C7D_REPORT_EXPORT_LAYER
+
+🎯 OBJECTIVE
+
+Add a disciplined export layer on top of the operator workflow so validation results can be turned into human-shareable artifacts without losing determinism, traceability, or raw detail.
+
+This mission is NOT about changing validation logic.
+It is about turning validated workflow output into exportable reports that can be reviewed, shared, and archived.
+
+The output should be useful to:
+- estimator
+- PM
+- office reviewer
+- internal handoff workflow
+
+This is the final workflow hardening step before PDF ingestion.
+
+---
+
+🧠 CONTEXT
+
+Current system state after C7C:
+
+- deterministic comparison engine works
+- mapping persistence works
+- mapping auto-selection works
+- operator workflow endpoint exists
+- next_action guidance exists
+- full raw detail remains preserved
+
+Current gap:
+
+The operator can run validation and understand it,
+but cannot yet cleanly:
+- export a report
+- hand results to someone else
+- archive a readable artifact
+- distinguish between summary view and evidence appendix in a durable format
+
+Swagger/JSON is still acting as the output surface.
+That is not enough.
+
+---
+
+🧱 PRODUCT REQUIREMENT
+
+An operator should be able to run validation and obtain:
+
+1. a concise human-readable summary report
+2. a detailed machine-trace appendix
+3. a structured export format suitable for downstream workflow
+
+At minimum support:
+- JSON export (normalized operator report)
+- CSV export for issue summary and/or comparison summary
+- HTML or PDF-friendly report output for human review
+
+Preferred design:
+Generate export-ready content first, then add a minimal file response layer.
+
+---
+
+🧱 SCOPE
+
+IN SCOPE:
+- export transform layer
+- normalized export payload(s)
+- file export endpoints for operator report
+- summary-focused tabular export(s)
+- report formatting for human-readable artifact
+- preservation of raw detail linkage
+- tests for export behavior
+
+OUT OF SCOPE:
+- PDF ingestion
+- OCR
+- changing reconciliation rules
+- changing mapping selection logic
+- large frontend work
+- notification workflows / emailing
+- permanent report storage unless trivially cheap and disciplined
+
+---
+
+🔒 PROTECTED SYSTEMS
+
+DO NOT MODIFY unless absolutely required:
+- reconciliation logic
+- mapping selection rules
+- next_action logic in operator report unless only adapted for export shape
+- /validate core semantics
+
+Exports must consume existing workflow output, not recreate it by new logic.
+
+---
+
+🧩 REQUIRED DESIGN
+
+Create a report export layer that consumes the existing operator report output from /validate/report.
+
+Preferred architecture:
+
+/validate/report
+    ↓
+build_operator_report(raw)
+    ↓
+new export transform(s)
+    ↓
+export endpoint(s)
+
+Examples of acceptable endpoint design:
+
+- POST /validate/report/export/json
+- POST /validate/report/export/csv
+- POST /validate/report/export/html
+
+Alternative route design is acceptable if clean and consistent.
+
+The key requirement:
+exports must be derived from the operator report, not from duplicated decision logic.
+
+---
+
+🧱 REQUIRED EXPORT TYPES
+
+1. JSON EXPORT
+Purpose:
+- machine-readable
+- archivable
+- stable downstream handoff
+
+Must contain:
+- run_summary
+- mapping_provenance
+- counts
+- key_findings
+- next_action
+- detail
+
+This may be nearly identical to /validate/report response, but should support file download if useful.
+
+---
+
+2. CSV EXPORT
+Purpose:
+- quick spreadsheet review
+- office distribution
+- human triage
+
+Must support at least one useful CSV output.
+Preferred:
+A flat issue summary export with columns like:
+- category
+- severity
+- item_ref
+- row_index
+- message
+- quote_qty
+- bid_qty
+- delta
+- percent_diff
+- mapping_source
+- mapping_name_used
+- next_action
+
+Optional second CSV:
+comparison detail export
+
+If multiple CSV exports are needed, keep them explicit and separately named.
+Do not jam multiple tables into one malformed CSV.
+
+---
+
+3. HUMAN-READABLE REPORT EXPORT
+Purpose:
+- readable artifact for internal review
+- printable / shareable report
+
+Preferred format:
+HTML first, structured so it can later be rendered or converted to PDF cleanly
+
+Must include:
+- clear header
+- run summary
+- mapping provenance
+- key findings
+- next action
+- concise issue tables
+- optional collapsed/raw detail appendix or clearly separated detail section
+
+Do not over-style it.
+Readable beats pretty.
+
+---
+
+🧱 REQUIRED OUTPUT BEHAVIOR
+
+Case A — Clean run
+Report should clearly say:
+- no actionable discrepancies detected
+- mapping source used
+- counts all zero/clean
+
+Case B — Warnings only
+Report should clearly highlight:
+- warning categories
+- affected items
+- next_action
+
+Case C — No mapping / unmatched
+Report should clearly highlight:
+- unmatched count
+- mapping not applied
+- explicit next action to create or supply mapping
+
+Case D — Ambiguous mapping
+Report should preserve candidate info and explicit instruction to choose mapping_name
+
+Case E — Mapped run with quantity mismatch
+Report should highlight the mismatched item(s) prominently
+
+---
+
+🧱 REQUIRED FILE RESPONSE BEHAVIOR
+
+Exports should be easy to retrieve as files.
+
+Acceptable implementation:
+- return FileResponse for generated temp files
+- or StreamingResponse with proper media type + filename headers
+
+Supported output names should be deterministic and readable, e.g.:
+- validation_report_<run_id>.json
+- validation_issues_<run_id>.csv
+- validation_report_<run_id>.html
+
+Avoid permanent storage unless needed.
+Temp generation is acceptable.
+
+---
+
+🧱 REQUIRED CONTENT RULES
+
+The export layer must preserve truth hierarchy:
+
+1. operator summary first
+2. actionable findings second
+3. detailed evidence after that
+4. raw detail never silently omitted if relied upon
+
+The export must not:
+- hide findings
+- re-score findings
+- introduce new matching logic
+- summarize away important discrepancies
+
+---
+
+🧪 REQUIRED TEST COVERAGE
+
+Add tests for at least:
+
+1. JSON export returns complete operator report shape
+2. CSV export returns valid CSV with expected headers
+3. quantity mismatch appears in CSV output
+4. unmatched lines appear in CSV output
+5. HTML export includes run summary, mapping provenance, next_action
+6. mapped run shows mapping source in export
+7. no-mapping run shows mapping guidance in export
+8. export endpoints preserve workflow behavior
+9. /validate and /validate/report remain unchanged
+10. prior full test suite passes
+
+If temp files are used:
+- ensure tests verify content, not just status code
+
+---
+
+📊 SUCCESS CRITERIA
+
+C7D is successful only if:
+
+1. an operator can export validation results into a readable artifact
+2. key findings are visible without reading raw JSON
+3. CSV export is useful for spreadsheet review
+4. HTML/printable report is readable and traceable
+5. raw detail remains available
+6. no core decision logic is duplicated
+7. existing endpoints remain intact
+8. old tests pass
+9. new tests pass
+
+---
+
+🚫 STOP CONDITIONS
+
+STOP and report if:
+- export work starts requiring core validation rewrites
+- formatting work starts hiding important evidence
+- the HTML/PDF path becomes a front-end project in disguise
+- export generation becomes coupled to business logic
+- multiple export types create drift instead of reuse
+
+No vanity formatting.
+No fake dashboards.
+No duplication of truth.
+
+---
+
+🧾 AUDIT OUTPUT REQUIRED
+
+Claude must return:
+
+1. files created
+2. files modified
+3. export architecture summary
+4. supported export formats
+5. example export request(s)
+6. example output description for each format
+7. test results
+8. remaining limitations before PDF ingestion
+
+---
+
+⚠️ FINAL RULE
+
+This mission exists to make the system portable, reviewable, and handoff-ready before messy document ingestion begins.
+
+Do not beautify the system.
+Package the truth.

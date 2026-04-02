@@ -1,0 +1,329 @@
+🧱 MISSION: C7C_OPERATOR_WORKFLOW_LAYER
+
+🎯 OBJECTIVE
+
+Wrap the validated bid guardrail engine in a clean operator workflow so a normal user can run structured validation without fighting Swagger field clutter or reading raw trace blobs to understand what matters.
+
+This mission does NOT replace the API.
+It adds an operator-facing workflow layer on top of the existing protected system.
+
+The goal is to turn:
+“a technically correct backend”
+into
+“a usable internal validation experience”
+
+---
+
+🧠 CONTEXT
+
+Current system state after C7B:
+
+- structured validation works
+- saved mapping works
+- automatic mapping selection works
+- deterministic reconciliation is protected
+- fail-closed behavior is intact
+- mapping provenance is exposed
+- tests are strong
+
+Current problem:
+
+The system is still awkward to operate because:
+- Swagger exposes too many low-level fields
+- operators can easily misuse the contract
+- the response is technically rich but visually noisy
+- the most important issues are buried inside large JSON payloads
+- the workflow still feels like a developer tool
+
+This mission is about usability and operator flow, NOT about changing decision logic.
+
+---
+
+🧱 PRODUCT REQUIREMENT
+
+An internal operator should be able to:
+
+1. choose a validation mode
+2. upload the correct files
+3. optionally provide project/vendor context
+4. run validation
+5. immediately understand:
+   - whether mapping was used
+   - how mapping was chosen
+   - whether any items were unmatched
+   - what the key discrepancies are
+   - whether totals mismatch
+   - what action to take next
+
+The operator should not need to interpret raw comparison arrays unless they deliberately drill into detail.
+
+---
+
+🧱 SCOPE
+
+IN SCOPE:
+- operator workflow endpoint and/or thin operator UI shell
+- clean request shape for normal structured validation
+- summarized output shape for human use
+- explicit drill-down sections for detail
+- mapping provenance surfaced clearly
+- next-action guidance on failure / ambiguity / no mapping
+- compatibility with current backend logic
+- tests for workflow behavior
+
+OUT OF SCOPE:
+- PDF ingestion
+- OCR
+- changing reconciliation rules
+- changing the core comparison engine
+- removing detailed trace data from the system
+- replacing the existing /validate endpoint
+- full frontend app if one does not already exist and is not cheap to leverage
+
+---
+
+🔒 PROTECTED SYSTEMS
+
+DO NOT MODIFY unless absolutely required:
+- reconciliation logic
+- canonical unit logic
+- quantity mismatch logic
+- summary row filtering
+- deterministic matching rules
+- existing /validate semantics unless only lightly adapted for workflow use
+
+This mission should consume the protected system, not rewrite it.
+
+---
+
+🧩 REQUIRED APPROACH
+
+Create a dedicated operator workflow path for structured validation.
+
+This may be:
+- a new endpoint such as /validate/operator
+- or a thin operator page/workflow under the existing frontend if already available and cheap to use
+- or both, if minimal and disciplined
+
+Preferred approach:
+Create a clean operator endpoint first, and only add a minimal UI wrapper if it is cheap and does not create drift.
+
+Reason:
+We need durable workflow logic first, presentation second.
+
+---
+
+🧱 REQUIRED OPERATOR INPUT CONTRACT
+
+Operator-facing structured validation input should be simplified to only what matters:
+
+Required:
+- bid_items
+- quote_lines
+
+Optional:
+- project
+- vendor
+- mapping_name
+- line_to_item_mapping
+- actor
+
+Should NOT expose irrelevant noise by default:
+- pdf
+- override fields
+- unrelated modes
+
+If using a new endpoint, it should target the structured quote-vs-bid workflow directly.
+
+Do not force the operator to pick doc_type if the endpoint already implies structured quote validation.
+If doc_type remains required internally, the operator layer should handle that on behalf of the user.
+
+---
+
+🧱 REQUIRED OUTPUT DESIGN
+
+The operator-facing output must include a clean, prioritized summary.
+
+At minimum include:
+
+1. run_summary
+- overall_status
+- mapping_source
+- mapping_name_used
+- matched_lines_count
+- unmatched_lines_count
+- totals_mismatch
+- quantity_mismatch_count
+- unit_mismatch_count
+
+2. key_findings
+A compact list of actionable issues:
+- quantity mismatches
+- unmatched lines
+- ambiguous lines
+- totals mismatch
+
+3. next_action
+Examples:
+- “No mapping was found. Save or upload a mapping.”
+- “Multiple mappings matched this project/vendor. Choose one explicitly.”
+- “Review quantity mismatch on item 2524-9325001.”
+- “Totals mismatch remains after successful mapping.”
+
+4. detail_sections
+Still include drill-down detail, but structured and nested:
+- comparison_details
+- unmatched_lines
+- bid_summary
+- quote_summary
+
+The key point:
+operators should see the important facts first and the raw detail second.
+
+---
+
+🧱 REQUIRED WORKFLOW BEHAVIOR
+
+Case A — Successful mapped comparison with warnings
+Show:
+- mapping_source
+- mapping_name_used
+- counts
+- key discrepancies
+- action guidance
+
+Case B — No mapping available
+Show:
+- no mapping was selected
+- unmatched count
+- next action telling operator to upload or save mapping
+
+Case C — Ambiguous mapping
+Show:
+- candidate mapping names
+- explicit instruction to choose mapping_name
+
+Case D — Explicit file upload mapping
+Show:
+- mapping_source=file_upload
+
+Case E — Explicit named mapping
+Show:
+- mapping_source=named
+
+Case F — Auto-selected mapping
+Show:
+- mapping_source=auto_selected
+
+The operator must always know WHY the system behaved the way it did.
+
+---
+
+🧱 REQUIRED RESPONSE NORMALIZATION
+
+Do not remove the detailed underlying comparison output from the system.
+Instead, repackage it for operator use.
+
+Example operator response shape:
+
+{
+  "run_summary": {...},
+  "key_findings": [...],
+  "next_action": {...},
+  "details": {...}
+}
+
+You may derive counts from existing findings/comparisons as needed, but do not re-implement decision logic.
+
+---
+
+🧱 REQUIRED ACTION GUIDANCE
+
+The operator workflow layer must provide clear, deterministic next-step guidance based on outcome.
+
+Examples:
+- No mapping selected → instruct user to upload mapping or save one with project/vendor metadata
+- Ambiguous mapping → instruct user to choose a specific mapping_name from candidates
+- Quantity mismatch → instruct user to review specific item(s)
+- Total mismatch only → instruct user to compare quote scope versus mapped bid subtotal
+- Clean run → indicate no actionable discrepancies detected
+
+This guidance must be factual, not motivational fluff.
+
+---
+
+🧪 REQUIRED TEST COVERAGE
+
+Add tests for at least:
+
+1. operator endpoint/workflow returns clean run_summary
+2. key_findings populated for quantity mismatch
+3. next_action populated correctly when no mapping exists
+4. next_action populated correctly for ambiguous mapping
+5. mapping provenance reported correctly
+6. detail sections still available
+7. counts in run_summary match underlying findings
+8. uploaded mapping path works
+9. named mapping path works
+10. auto-selected mapping path works
+11. no regression in existing validate behavior
+12. prior full test suite passes
+
+If a minimal UI is added:
+- add at least one light rendering/state test if the repo already supports it cheaply
+- do not build a giant frontend surface just to satisfy the mission
+
+---
+
+📊 SUCCESS CRITERIA
+
+C7C is successful only if:
+
+1. a normal user can run structured validation without interacting with irrelevant low-level fields
+2. the output shows the important facts first
+3. mapping provenance is obvious
+4. next-step guidance is explicit and deterministic
+5. detailed trace remains available
+6. existing /validate behavior remains intact
+7. existing tests pass
+8. new workflow tests pass
+
+---
+
+🚫 STOP CONDITIONS
+
+STOP and report if:
+- implementing this requires rewriting core validation logic
+- the workflow layer starts duplicating reconciliation logic
+- presentation requirements force unsafe contract drift
+- the frontend cost explodes relative to value
+- the repo is not actually set up for a minimal UI and endpoint-only workflow is the correct path
+
+No fake polish.
+No massive frontend build-out.
+No hidden logic duplication.
+
+---
+
+🧾 AUDIT OUTPUT REQUIRED
+
+Claude must return:
+
+1. files created
+2. files modified
+3. operator workflow design summary
+4. old workflow vs new workflow
+5. example operator request
+6. example operator response
+7. next_action rule summary
+8. test results
+9. any remaining usability limitations
+
+---
+
+⚠️ FINAL RULE
+
+This mission is about reducing operator cognitive load without reducing system truth.
+
+Do not simplify the logic.
+Simplify access to the logic.
