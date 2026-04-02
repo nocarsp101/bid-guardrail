@@ -153,6 +153,176 @@ class TestValidateEndpointQuoteMode:
         assert len(missing_up) == 0
 
 
+class TestValidateEndpointContractHardening:
+    """C6B: Endpoint contract, mapping toggle, and parameter hardening."""
+
+    def test_mapping_without_quote_lines_rejected(self, client):
+        """line_to_item_mapping without quote_lines is fail-closed 400."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        mapping_json = b'{"520": "2524-6765010"}'
+        pdf_bytes = _minimal_pdf()
+
+        with open(bid_path, "rb") as bf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "PRIME_BID"},
+                files={
+                    "pdf": ("test.pdf", io.BytesIO(pdf_bytes), "application/pdf"),
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_json), "application/json"),
+                },
+            )
+        assert resp.status_code == 400
+        assert "line_to_item_mapping" in resp.json()["detail"]
+
+    def test_mapping_invalid_json_rejected(self, client):
+        """Invalid JSON in mapping file -> 400."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(b"NOT JSON"), "application/json"),
+                },
+            )
+        assert resp.status_code == 400
+        assert "json" in resp.json()["detail"].lower()
+
+    def test_mapping_non_dict_json_rejected(self, client):
+        """JSON array in mapping file -> 400."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(b'[1, 2, 3]'), "application/json"),
+                },
+            )
+        assert resp.status_code == 400
+        assert "json object" in resp.json()["detail"].lower()
+
+    def test_quote_mode_with_mapping_applies_mapping(self, client):
+        """QUOTE mode with valid mapping -> line_mapping_applied=True, matches produced."""
+        import json as _json
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}: {resp.text}"
+        data = resp.json()
+
+        # Mapping flag in ingestion metadata
+        ingestion = data["quote_summary"]["ingestion"]
+        assert ingestion["line_mapping_applied"] is True
+
+        # With correct mapping, all 14 quote lines should match bid items
+        unmatched = [f for f in data["findings"] if f["type"] == "quote_line_unmatched"]
+        assert len(unmatched) == 0, f"With mapping, expected 0 unmatched, got {len(unmatched)}"
+
+    def test_quote_mode_without_mapping_no_mapping_applied(self, client):
+        """QUOTE mode without mapping -> line_mapping_applied=False."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        ingestion = data["quote_summary"]["ingestion"]
+        assert ingestion["line_mapping_applied"] is False
+
+    def test_output_contract_top_level_keys(self, client):
+        """Response contains all required top-level keys."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        required_keys = {"run_id", "doc_type", "overall_status", "findings", "bid_summary", "quote_summary", "audit_log"}
+        assert required_keys.issubset(data.keys()), f"Missing keys: {required_keys - data.keys()}"
+
+    def test_quote_summary_ingestion_keys(self, client):
+        """quote_summary.ingestion has expected keys including line_mapping_applied."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        data = resp.json()
+        ingestion = data["quote_summary"]["ingestion"]
+        expected_keys = {
+            "rows_raw_total", "mapping_missing", "mapping_ambiguous",
+            "mapping_used", "alias_dictionary", "normalization", "line_mapping_applied",
+        }
+        assert expected_keys.issubset(ingestion.keys()), f"Missing: {expected_keys - ingestion.keys()}"
+
+    def test_bid_only_mode_has_no_quote_summary(self, client):
+        """PRIME_BID without quote_lines -> quote_summary is None."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        pdf_bytes = _minimal_pdf()
+
+        with open(bid_path, "rb") as bf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test-harness", "doc_type": "PRIME_BID"},
+                files={
+                    "pdf": ("test.pdf", io.BytesIO(pdf_bytes), "application/pdf"),
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["quote_summary"] is None
+
+
 def _minimal_pdf() -> bytes:
     """Generate a minimal valid PDF (1 page, no content)."""
     import fitz

@@ -1,0 +1,283 @@
+🧱 MISSION: C6B_VALIDATE_CONTRACT_HARDENING
+
+🎯 OBJECTIVE
+
+Harden the /validate request contract so the structured pipeline can be used reliably in real operator flow.
+
+Manual testing exposed that the runtime pipeline exists, but the endpoint contract is not production-usable because:
+
+1. doc_type currently routes users into the wrong ingestion path
+2. PRIME_BID incorrectly forces pdf in the structured test flow
+3. Swagger file upload behavior is unstable / confusing
+4. structured inputs are not clearly separated from pdf inputs
+5. operator intent is ambiguous at request time
+
+This mission fixes the contract, not the engine.
+
+---
+
+🧠 CONTEXT
+
+C6 successfully integrated the structured pipeline into runtime.
+
+Current known reality:
+
+- backend starts and route exists
+- structured pipeline can be called in runtime
+- reconciliation engine remains protected
+- manual testing exposed endpoint defects
+
+Observed defects from manual testing:
+
+- selecting PRIME_BID triggered "pdf is required for PRIME_BID"
+- structured files and pdf path are not clearly separated
+- Swagger sometimes serialized upload fields incorrectly or exposed a confusing form contract
+- operator could not confidently know which fields to use
+
+This means the current endpoint is technically integrated but not operationally trustworthy.
+
+---
+
+🧱 SCOPE
+
+This mission is ONLY about hardening /validate contract behavior.
+
+IN SCOPE:
+- request model / endpoint parameter cleanup
+- explicit structured mode
+- explicit pdf mode
+- separation of ingestion paths
+- predictable field requirements
+- Swagger usability for manual testing
+- response metadata improvements if needed for clarity
+- tests for endpoint contract behavior
+
+OUT OF SCOPE:
+- new reconciliation logic
+- pdf extraction improvements
+- OCR
+- UI outside Swagger/OpenAPI behavior
+- review workflow / overrides expansion
+- schema redesign beyond what is needed for contract clarity
+
+---
+
+🔒 PROTECTED SYSTEMS (DO NOT MODIFY UNLESS ABSOLUTELY REQUIRED)
+
+- reconciliation rules / core comparison logic
+- canonical unit logic
+- quantity mismatch detection
+- summary row filtering behavior
+- mapping adapter logic itself
+- existing structured ingest semantics unless required for endpoint correctness
+
+---
+
+🧱 DESIGN GOAL
+
+/validate must become explicit and deterministic.
+
+Operator must be able to answer:
+
+"What kind of validation am I running?"
+"What files are required for that mode?"
+"What fields do I leave blank?"
+"What happens if I provide the wrong combination?"
+
+There must be no hidden routing based on confusing doc_type semantics.
+
+---
+
+🧩 REQUIRED END STATE
+
+The endpoint contract must clearly support TWO modes:
+
+MODE A — STRUCTURED VALIDATION
+For:
+- bid_items
+- quote_lines
+- optional line_to_item_mapping
+
+MODE B — PDF VALIDATION
+For:
+- pdf
+- any existing required metadata for pdf path
+
+Each mode must have explicit validation rules.
+
+---
+
+🧱 REQUIRED IMPLEMENTATION APPROACH
+
+STEP 1 — Inspect current /validate signature and routing logic
+
+- Identify all current request parameters
+- Identify how doc_type currently influences required fields
+- Identify why PRIME_BID forces pdf
+- Identify why structured path is ambiguous in Swagger
+
+Document current behavior before changing it
+
+---
+
+STEP 2 — Define explicit validation mode
+
+Introduce an explicit request discriminator such as:
+
+validation_mode:
+- structured
+- pdf
+
+Alternative naming is acceptable if clean and explicit, but it must be operator-readable.
+
+Requirements:
+
+STRUCTURED MODE:
+- requires bid_items
+- requires quote_lines
+- allows optional line_to_item_mapping
+- forbids requiring pdf
+
+PDF MODE:
+- requires pdf
+- does not require structured files unless intentionally supported
+
+Do NOT rely on doc_type alone to determine ingestion path.
+
+doc_type may remain for business classification if needed, but it must no longer silently control ingestion mode in a confusing way.
+
+---
+
+STEP 3 — Clean field requirements
+
+In structured mode:
+- pdf must be optional and ignored if absent
+- bid_items and quote_lines must be true file uploads
+- line_to_item_mapping must be optional file upload
+- endpoint must fail clearly if structured fields are missing
+
+In pdf mode:
+- pdf must be required
+- structured fields must not be required
+
+If conflicting fields are sent, behavior must be explicit:
+- either reject with a clear error
+OR
+- accept only according to clearly documented precedence
+
+Preferred behavior:
+fail closed on invalid mixed combinations unless there is a strong reason not to.
+
+---
+
+STEP 4 — Swagger / FastAPI form hardening
+
+Adjust endpoint declaration so Swagger renders file fields correctly and predictably.
+
+Goal:
+- file inputs must behave like real UploadFile inputs
+- manual tester must be able to understand what to upload
+- confusing default values or misleading examples should be removed
+- endpoint description/help text should explain the two modes
+
+This mission must improve operator use in Swagger enough that manual validation is straightforward.
+
+---
+
+STEP 5 — Preserve structured pipeline integration
+
+When validation_mode=structured:
+- use the C6 structured pipeline runner
+- do not duplicate pipeline logic in the endpoint
+- do not re-embed mapping logic in the route
+- preserve fail-closed behavior
+
+When validation_mode=pdf:
+- preserve existing pdf path behavior unless cleanup is required for correctness
+
+---
+
+STEP 6 — Response clarity
+
+If needed, improve response metadata to state what mode actually ran.
+
+Example:
+metadata.validation_mode = "structured"
+
+This is allowed if it improves operator clarity and does not break protected outputs unnecessarily.
+
+Do NOT destabilize finding structure.
+
+---
+
+🧪 REQUIRED TEST COVERAGE
+
+Add or update endpoint-level tests for at least:
+
+1. structured mode with bid_items + quote_lines succeeds
+2. structured mode without pdf succeeds
+3. structured mode missing bid_items fails clearly
+4. structured mode missing quote_lines fails clearly
+5. structured mode with invalid mapping file fails clearly
+6. pdf mode without pdf fails clearly
+7. pdf mode with pdf reaches pdf path correctly
+8. invalid mixed-mode request fails clearly
+9. Swagger/OpenAPI shape is compatible with file uploads
+
+If practical, add at least one integration-style test proving that structured mode reaches run_structured_pipeline.
+
+---
+
+📊 SUCCESS CRITERIA
+
+C6B is successful only if all of the following are true:
+
+1. Operator can manually run structured validation from Swagger without confusion
+2. Structured mode no longer requires pdf
+3. doc_type no longer silently forces the wrong ingestion path
+4. File uploads are handled as true UploadFile inputs
+5. Endpoint behavior is explicit and fail-closed
+6. Existing core tests still pass
+7. New endpoint contract tests pass
+8. Structured pipeline remains routed through the orchestrator, not duplicated
+
+---
+
+🚫 STOP CONDITIONS
+
+STOP if any of the following become necessary without explanation:
+
+- modifying reconciliation rules
+- changing findings semantics unrelated to contract hardening
+- large refactor outside endpoint/request layer
+- weakening fail-closed behavior
+- introducing hidden fallback guessing between structured and pdf modes
+
+If contract hardening reveals deeper architecture issues, stop and report them cleanly.
+
+---
+
+🧾 AUDIT OUTPUT (REQUIRED)
+
+Claude must return:
+
+1. files created
+2. files modified
+3. old /validate contract summary
+4. new /validate contract summary
+5. exact structured request example
+6. exact pdf request example
+7. test results
+8. any remaining known limitations
+
+---
+
+⚠️ FINAL RULE
+
+This mission is about operator trust.
+
+The endpoint must stop being clever and start being explicit.
+
+No ambiguity.
+No silent routing.
+No magical field combinations.

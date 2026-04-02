@@ -1,6 +1,7 @@
 # backend/app/main.py
 from __future__ import annotations
 
+import json
 import os
 from typing import Optional, List, Dict, Any
 
@@ -18,8 +19,7 @@ from app.bid_validation.rules import validate_bid_items
 from app.audit.models import AuditEvent, Finding, OverrideInfo
 from app.audit.writer import AuditWriter
 
-from app.quote_reconciliation.ingest import ingest_quote_lines
-from app.quote_reconciliation.rules import reconcile_quote_lines_against_bid
+from app.quote_reconciliation.pipeline import run_structured_pipeline
 
 
 APP_NAME = "Bid Guardrail MVP (Week-2)"
@@ -46,15 +46,48 @@ def health():
 
 @app.post("/validate")
 async def validate(
-    actor: str = Form(...),
-    doc_type: str = Form("PRIME_BID"),  # PRIME_BID or QUOTE
-    pdf: Optional[UploadFile] = File(None),  # optional for QUOTE
-    bid_items: Optional[UploadFile] = File(None),
-    override: Optional[bool] = Form(False),
-    override_reason: Optional[str] = Form(None),
-    override_actor: Optional[str] = Form(None),
-    quote_lines: Optional[UploadFile] = File(None),
+    actor: str = Form(..., description="User or system identity performing the validation"),
+    doc_type: str = Form(
+        "PRIME_BID",
+        description="Validation mode: PRIME_BID (pdf + bid_items) or QUOTE (bid_items + quote_lines)",
+    ),
+    pdf: Optional[UploadFile] = File(
+        None, description="PDF document to validate (required for PRIME_BID mode)",
+    ),
+    bid_items: Optional[UploadFile] = File(
+        None, description="Bid items spreadsheet — CSV or XLSX (always required)",
+    ),
+    override: Optional[bool] = Form(
+        False, description="Set true to override FAIL findings (requires override_reason)",
+    ),
+    override_reason: Optional[str] = Form(
+        None, description="Justification text — required when override=true",
+    ),
+    override_actor: Optional[str] = Form(
+        None, description="Actor authorizing the override (defaults to actor)",
+    ),
+    quote_lines: Optional[UploadFile] = File(
+        None, description="Quote lines spreadsheet — CSV or XLSX (required for QUOTE mode)",
+    ),
+    line_to_item_mapping: Optional[UploadFile] = File(
+        None,
+        description=(
+            'Optional JSON file mapping proposal line numbers to DOT item numbers, '
+            'e.g. {"520": "2524-6765010"}. Only used when quote_lines is provided.'
+        ),
+    ),
 ):
+    """
+    Validate bid documents and optionally reconcile against quote data.
+
+    **Modes:**
+    - **PRIME_BID** — requires `pdf` + `bid_items`. Runs PDF integrity checks and bid item validation.
+    - **QUOTE** — requires `bid_items` + `quote_lines`. Runs bid validation and quote reconciliation.
+    - **Combined** — provide `pdf` + `bid_items` + `quote_lines` for full validation.
+
+    **Line mapping (optional):** upload a JSON object mapping proposal line numbers to
+    DOT item numbers. Applied between quote ingest and reconciliation. Requires `quote_lines`.
+    """
     actor = (actor or "").strip()
     if not actor:
         raise HTTPException(status_code=400, detail="actor is required")
@@ -71,6 +104,12 @@ async def validate(
 
     if doc_type_norm == "QUOTE" and quote_lines is None:
         raise HTTPException(status_code=400, detail="QUOTE mode requires quote_lines upload")
+
+    if line_to_item_mapping is not None and quote_lines is None:
+        raise HTTPException(
+            status_code=400,
+            detail="line_to_item_mapping requires quote_lines (mapping has no target without quote data)",
+        )
 
     run = storage.create_run(actor=actor)
 
@@ -153,7 +192,7 @@ async def validate(
         "normalization": ingest_meta.get("normalization"),
     }
 
-        # Quote reconciliation
+    # Quote reconciliation (structured pipeline)
     if quote_lines is not None:
         extq = os.path.splitext((quote_lines.filename or "").lower())[1]
         if extq not in (".csv", ".xlsx", ".xlsm", ".xltx", ".xltm"):
@@ -167,11 +206,33 @@ async def validate(
             "quote_totals_crosscheck",
         ]
 
-        # IMPORTANT: catch QUOTE ingest errors so we never 500
+        # Parse line-to-item mapping toggle (optional JSON file)
+        mapping_dict = None
+        if line_to_item_mapping is not None:
+            mapping_bytes = await line_to_item_mapping.read()
+            try:
+                mapping_dict = json.loads(mapping_bytes)
+            except (json.JSONDecodeError, ValueError) as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"line_to_item_mapping must be valid JSON: {e}",
+                )
+            if not isinstance(mapping_dict, dict):
+                raise HTTPException(
+                    status_code=400,
+                    detail="line_to_item_mapping must be a JSON object mapping line numbers to item numbers",
+                )
+            checks_executed.append("line_number_mapping")
+
+        # IMPORTANT: catch pipeline errors so we never 500
         try:
-            quote_rows_norm, quote_ingest_meta = ingest_quote_lines(saved_quote_path)
+            q_findings, quote_summary, quote_ingest_meta = run_structured_pipeline(
+                quote_file_path=saved_quote_path,
+                bid_rows=bid_rows_norm,
+                line_to_item_mapping=mapping_dict,
+            )
         except Exception as e:
-            # If your quote ingest defines a custom IngestError with .meta, we preserve it.
+            # If quote ingest defines a custom IngestError with .meta, we preserve it.
             meta = getattr(e, "meta", {}) or {}
             payload = {
                 "run_id": run.run_id,
@@ -211,10 +272,6 @@ async def validate(
             }
             return JSONResponse(payload, status_code=400)
 
-        q_findings, quote_summary = reconcile_quote_lines_against_bid(
-            bid_rows=bid_rows_norm,
-            quote_rows=quote_rows_norm,
-        )
         findings += q_findings
 
         quote_summary = quote_summary or {}
@@ -225,6 +282,7 @@ async def validate(
             "mapping_used": quote_ingest_meta.get("mapping_used"),
             "alias_dictionary": quote_ingest_meta.get("mapping_alias_dict"),
             "normalization": quote_ingest_meta.get("normalization"),
+            "line_mapping_applied": quote_ingest_meta.get("line_mapping_applied", False),
         }
 
     overall_status = compute_overall_status(findings)
