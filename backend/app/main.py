@@ -60,8 +60,10 @@ async def save_mapping(
     name: str = Form(..., description="Mapping name (alphanumeric, hyphens, underscores)"),
     actor: str = Form(..., description="User or system saving the mapping"),
     mapping: UploadFile = File(..., description='JSON file: {"line_number": "dot_item", ...}'),
+    project: Optional[str] = Form(None, description="Project identifier for auto-selection in /validate"),
+    vendor: Optional[str] = Form(None, description="Vendor identifier for auto-selection in /validate"),
 ):
-    """Save a line-to-item mapping for reuse in /validate via mapping_name."""
+    """Save a line-to-item mapping for reuse in /validate via mapping_name or project/vendor auto-selection."""
     name = name.strip()
     if not _is_valid_mapping_name(name):
         raise HTTPException(
@@ -77,14 +79,16 @@ async def save_mapping(
     if not isinstance(mapping_dict, dict):
         raise HTTPException(status_code=400, detail="mapping must be a JSON object")
 
-    record = mapping_store.save(name, mapping_dict, actor.strip())
+    _project = project.strip() if project and project.strip() else None
+    _vendor = vendor.strip() if vendor and vendor.strip() else None
+    record = mapping_store.save(name, mapping_dict, actor.strip(), project=_project, vendor=_vendor)
     return record
 
 
 @app.get("/mapping/list")
 def list_mappings():
-    """List all saved mapping names."""
-    return {"mappings": mapping_store.list_names()}
+    """List all saved mappings with project/vendor metadata (without full mapping data)."""
+    return {"mappings": mapping_store.list_records()}
 
 
 @app.get("/mapping/{name}")
@@ -136,6 +140,14 @@ async def validate(
         None,
         description="Name of a saved mapping to auto-load (alternative to uploading line_to_item_mapping file)",
     ),
+    project: Optional[str] = Form(
+        None,
+        description="Project identifier — used for auto-selecting a saved mapping when no explicit mapping is provided",
+    ),
+    vendor: Optional[str] = Form(
+        None,
+        description="Vendor identifier — used for auto-selecting a saved mapping when no explicit mapping is provided",
+    ),
 ):
     """
     Validate bid documents and optionally reconcile against quote data.
@@ -145,8 +157,11 @@ async def validate(
     - **QUOTE** — requires `bid_items` + `quote_lines`. Runs bid validation and quote reconciliation.
     - **Combined** — provide `pdf` + `bid_items` + `quote_lines` for full validation.
 
-    **Line mapping (optional):** upload a JSON object mapping proposal line numbers to
-    DOT item numbers. Applied between quote ingest and reconciliation. Requires `quote_lines`.
+    **Line mapping selection (precedence):**
+    1. `line_to_item_mapping` file upload (explicit, highest priority)
+    2. `mapping_name` — load a saved mapping by name
+    3. `project` / `vendor` — auto-select a saved mapping (must match exactly one)
+    4. None — no mapping applied
     """
     actor = (actor or "").strip()
     if not actor:
@@ -272,8 +287,12 @@ async def validate(
             "quote_totals_crosscheck",
         ]
 
-        # Parse line-to-item mapping toggle (optional JSON file)
+        # Mapping selection — strict precedence:
+        #   1. file upload  2. mapping_name  3. project/vendor auto-select  4. none
         mapping_dict = None
+        mapping_source = None
+        mapping_name_used = None
+
         if line_to_item_mapping is not None:
             mapping_bytes = await line_to_item_mapping.read()
             try:
@@ -288,7 +307,9 @@ async def validate(
                     status_code=400,
                     detail="line_to_item_mapping must be a JSON object mapping line numbers to item numbers",
                 )
+            mapping_source = "file_upload"
             checks_executed.append("line_number_mapping")
+
         elif mapping_name and mapping_name.strip():
             mapping_name_clean = mapping_name.strip()
             if not mapping_store.exists(mapping_name_clean):
@@ -297,7 +318,31 @@ async def validate(
                     detail=f"Saved mapping not found: {mapping_name_clean}",
                 )
             mapping_dict = mapping_store.load(mapping_name_clean)
+            mapping_source = "named"
+            mapping_name_used = mapping_name_clean
             checks_executed.append("line_number_mapping")
+
+        else:
+            # Tier 3: auto-select by project/vendor (deterministic, exact match)
+            _project = project.strip() if project and project.strip() else None
+            _vendor = vendor.strip() if vendor and vendor.strip() else None
+            if _project or _vendor:
+                candidates = mapping_store.find_by_context(project=_project, vendor=_vendor)
+                if len(candidates) == 1:
+                    mapping_name_used = candidates[0]
+                    mapping_dict = mapping_store.load(mapping_name_used)
+                    mapping_source = "auto_selected"
+                    checks_executed.append("line_number_mapping")
+                elif len(candidates) > 1:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Ambiguous mapping: {len(candidates)} saved mappings match "
+                            f"project={_project!r} vendor={_vendor!r}. "
+                            f"Matches: {candidates}. "
+                            f"Provide mapping_name to disambiguate."
+                        ),
+                    )
 
         # IMPORTANT: catch pipeline errors so we never 500
         try:
@@ -358,6 +403,8 @@ async def validate(
             "alias_dictionary": quote_ingest_meta.get("mapping_alias_dict"),
             "normalization": quote_ingest_meta.get("normalization"),
             "line_mapping_applied": quote_ingest_meta.get("line_mapping_applied", False),
+            "mapping_source": mapping_source,
+            "mapping_name_used": mapping_name_used,
         }
 
     overall_status = compute_overall_status(findings)

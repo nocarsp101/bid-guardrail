@@ -1,0 +1,327 @@
+🧱 MISSION: C7B_AUTO_MAPPING_SELECTION
+
+🎯 OBJECTIVE
+
+Eliminate the need for the operator to manually type mapping_name during normal validation runs by introducing deterministic automatic mapping selection.
+
+The system must choose the correct saved mapping when enough explicit context exists, and fail closed when it does not.
+
+This mission is about workflow hardening, not intelligence theater.
+
+---
+
+🧠 CONTEXT
+
+Current state after C7:
+
+- structured validation works
+- mapping persistence works
+- saved mappings can be reused via mapping_name
+- uploaded mapping file still takes precedence
+- fail-closed behavior is intact
+- deterministic reconciliation remains protected
+
+Current friction:
+
+- operator must manually know and enter mapping_name
+- this is fragile, annoying, and unnecessary in repeat workflows
+- Swagger/UI is still noisy and easy to misuse
+- adoption risk remains high if mapping retrieval depends on human memory
+
+We now need the system to auto-select mappings based on explicit context, not guesswork.
+
+---
+
+🧱 PRODUCT REQUIREMENT
+
+Target operator experience:
+
+Run /validate with:
+- bid_items
+- quote_lines
+- project context
+- vendor context
+
+System behavior:
+- if exactly one matching saved mapping exists → auto-apply it
+- if none exist → fail closed with clear guidance
+- if multiple possible mappings exist → fail closed with explicit choices
+- if a mapping file is uploaded manually → it overrides auto-selection
+- if mapping_name is explicitly provided → it overrides auto-selection
+
+Operator should not have to remember hidden names during normal use.
+
+---
+
+🧱 SCOPE
+
+IN SCOPE:
+- mapping metadata expansion
+- explicit project/vendor/context matching
+- automatic mapping lookup
+- deterministic selection rules
+- ambiguity handling
+- endpoint contract updates
+- tests for selection behavior
+- response metadata clarifying how mapping was chosen
+
+OUT OF SCOPE:
+- fuzzy matching
+- LLM suggestions
+- PDF ingestion
+- UI redesign outside endpoint/openapi descriptions
+- reconciliation rule changes
+- database migration beyond what is needed for local persistence
+
+---
+
+🔒 PROTECTED SYSTEMS
+
+DO NOT MODIFY unless absolutely required:
+- reconciliation logic
+- unit canonicalization
+- quantity mismatch rules
+- summary row filtering
+- deterministic core matching behavior
+
+Mapping selection must stay outside the core engine.
+
+---
+
+🧩 REQUIRED DESIGN
+
+The system must support explicit mapping context fields such as:
+
+- project_key
+- vendor_key
+
+Alternative names are acceptable if clean and consistent, but they must be operator-readable and deterministic.
+
+Saved mapping records must store at minimum:
+- name
+- actor
+- created_at
+- mapping entry count
+- project_key
+- vendor_key
+- optional notes
+
+The mapping store must remain inspectable and transparent.
+
+---
+
+🧱 REQUIRED SELECTION RULES
+
+Mapping resolution order must be:
+
+1. uploaded mapping file
+2. explicit mapping_name
+3. auto-selected mapping by context
+4. no mapping
+
+Auto-selection must only occur if:
+- project_key is provided
+- vendor_key is provided
+- exactly one saved mapping matches both
+
+If zero mappings match:
+- continue without mapping OR fail closed with explicit guidance, depending on current endpoint mode design
+- preferred behavior: fail closed with a clear message when unmatched quote workflow depends on mapping
+
+If more than one mapping matches:
+- reject with explicit ambiguity error
+- include candidate mapping names in the error response
+
+No silent fallback.
+No “best guess”.
+No partial guessing based on one field only unless explicitly designed and tested.
+
+Preferred strict rule:
+- require exact project_key + vendor_key match for auto-selection
+
+---
+
+🧱 REQUIRED STORAGE CHANGES
+
+Extend MappingStore records to persist metadata fields:
+- project_key
+- vendor_key
+- notes (optional)
+
+Add validation:
+- keys must be normalized deterministically
+- acceptable format should be constrained and documented
+- name validation must remain intact
+
+Existing saved mappings without metadata must not break the system.
+Handle legacy mappings safely:
+- either treat as manual-name-only mappings
+- or migrate safely with explicit defaults
+- do not silently pretend they are auto-selectable
+
+---
+
+🧱 REQUIRED ENDPOINT CHANGES
+
+1. POST /mapping/save
+Must accept:
+- name
+- mapping file
+- actor
+- project_key
+- vendor_key
+- optional notes
+
+2. GET /mapping/list
+Should expose enough metadata to be useful, not just bare names, unless there is a strong reason not to.
+At minimum consider returning:
+- name
+- project_key
+- vendor_key
+- entry_count
+- created_at
+
+3. GET /mapping/{name}
+Must return full mapping record including metadata.
+
+4. POST /validate
+Must support:
+- mapping_name (still allowed)
+- project_key
+- vendor_key
+
+Resolution order:
+uploaded file > mapping_name > auto-selection > none
+
+Response metadata should clearly state:
+- mapping_source: uploaded | named | auto | none
+- mapping_name_used: <name or null>
+
+---
+
+🧱 REQUIRED VALIDATION BEHAVIOR
+
+Case A — Uploaded file present:
+- uploaded file always wins
+- project/vendor context ignored for selection
+- response must say mapping_source=uploaded
+
+Case B — mapping_name present:
+- exact named mapping must be used
+- auto-selection skipped
+- response must say mapping_source=named
+
+Case C — no upload, no mapping_name, project_key + vendor_key provided:
+- if exactly one mapping matches → use it
+- response must say mapping_source=auto
+- response must include mapping_name_used
+
+Case D — no upload, no mapping_name, no usable context:
+- no mapping selected
+- fail closed or return unmatched exactly as designed
+- behavior must be explicit
+
+Case E — ambiguous context:
+- return clear 409 or 400 with candidate mappings
+- do not choose one
+
+---
+
+🧱 UNMATCHED / ERROR EXPERIENCE
+
+If the system cannot auto-select due to ambiguity or absence, error/output must help the operator recover.
+
+Examples:
+- no matching mapping for project_key/vendor_key
+- multiple mappings found for project_key/vendor_key
+- legacy mapping exists but lacks metadata and is not auto-selectable
+
+When ambiguity exists, include:
+- candidate mapping names
+- candidate metadata summary if useful
+
+When no mapping exists, include:
+- clear next action suggestion
+- either upload mapping or save mapping with project/vendor metadata
+
+Do not return vague generic errors.
+
+---
+
+🧪 REQUIRED TEST COVERAGE
+
+Add endpoint and storage tests for at least:
+
+1. save mapping with metadata succeeds
+2. invalid metadata rejected
+3. list includes metadata
+4. get mapping returns metadata
+5. validate with uploaded mapping overrides all
+6. validate with mapping_name overrides auto-selection
+7. validate auto-selects when exactly one project/vendor match exists
+8. validate fails clearly when no project/vendor match exists
+9. validate fails clearly when multiple project/vendor matches exist
+10. legacy mapping without metadata does not auto-select silently
+11. response metadata reports mapping_source correctly
+12. mapping_name_used reported correctly
+13. existing C7 behavior remains intact
+14. full prior test suite still passes
+
+---
+
+📊 SUCCESS CRITERIA
+
+C7B is successful only if:
+
+1. operator can run /validate without typing mapping_name when explicit project/vendor context exists
+2. exactly one matching mapping auto-loads deterministically
+3. ambiguous mappings fail closed
+4. missing mappings fail clearly
+5. uploaded file and explicit mapping_name precedence remain intact
+6. response reports how mapping was selected
+7. legacy mappings do not silently break or auto-select incorrectly
+8. all old tests pass
+9. new tests pass
+
+---
+
+🚫 STOP CONDITIONS
+
+STOP and report if:
+- reconciliation logic must be modified
+- deterministic selection cannot be achieved cleanly
+- endpoint contract becomes more confusing instead of less
+- legacy mapping handling requires destructive migration
+- auto-selection starts depending on fuzzy heuristics
+
+No guessing.
+No hidden behavior.
+No “smart” magic.
+
+---
+
+🧾 AUDIT OUTPUT REQUIRED
+
+Claude must return:
+
+1. files created
+2. files modified
+3. old mapping workflow summary
+4. new mapping workflow summary
+5. selection precedence summary
+6. example save request with metadata
+7. example validate request using auto-selection
+8. example ambiguity failure response
+9. test results
+10. any remaining limitations
+
+---
+
+⚠️ FINAL RULE
+
+This mission is not about making the system feel clever.
+
+It is about making the system feel inevitable.
+
+The right mapping should load automatically only when the facts justify it.
+Otherwise the system must stop and say so.

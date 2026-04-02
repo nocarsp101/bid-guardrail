@@ -302,6 +302,7 @@ class TestValidateEndpointContractHardening:
         expected_keys = {
             "rows_raw_total", "mapping_missing", "mapping_ambiguous",
             "mapping_used", "alias_dictionary", "normalization", "line_mapping_applied",
+            "mapping_source", "mapping_name_used",
         }
         assert expected_keys.issubset(ingestion.keys()), f"Missing: {expected_keys - ingestion.keys()}"
 
@@ -380,7 +381,8 @@ class TestMappingEndpoints:
             files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
         )
         resp = client.get("/mapping/list")
-        assert "alpha" in resp.json()["mappings"]
+        names = [m["name"] for m in resp.json()["mappings"]]
+        assert "alpha" in names
 
     def test_get_mapping_found(self, client):
         client.post(
@@ -571,6 +573,343 @@ class TestUnmatchedEnrichment:
         qs = data["quote_summary"]
         assert "available_bid_items" not in qs
         assert "mapping_hint" not in qs
+
+
+class TestMappingSaveWithContext:
+    """C7B: /mapping/save with project/vendor metadata."""
+
+    def test_save_with_project_and_vendor(self, client):
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "adel-ipsi", "actor": "test", "project": "adel", "vendor": "ipsi"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"520": "2524-6765010"}'), "application/json")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["project"] == "adel"
+        assert data["vendor"] == "ipsi"
+
+    def test_save_without_context_has_null_fields(self, client):
+        resp = client.post(
+            "/mapping/save",
+            data={"name": "bare", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
+        )
+        data = resp.json()
+        assert data["project"] is None
+        assert data["vendor"] is None
+
+    def test_list_records_include_context(self, client):
+        client.post(
+            "/mapping/save",
+            data={"name": "ctx-map", "actor": "test", "project": "proj-x", "vendor": "vendor-y"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
+        )
+        resp = client.get("/mapping/list")
+        records = resp.json()["mappings"]
+        assert len(records) == 1
+        assert records[0]["name"] == "ctx-map"
+        assert records[0]["project"] == "proj-x"
+        assert records[0]["vendor"] == "vendor-y"
+
+    def test_get_mapping_includes_context(self, client):
+        client.post(
+            "/mapping/save",
+            data={"name": "ctx-map", "actor": "test", "project": "proj-x", "vendor": "vendor-y"},
+            files={"mapping": ("m.json", io.BytesIO(b'{"1": "A"}'), "application/json")},
+        )
+        resp = client.get("/mapping/ctx-map")
+        data = resp.json()
+        assert data["project"] == "proj-x"
+        assert data["vendor"] == "vendor-y"
+
+
+class TestAutoSelection:
+    """C7B: /validate auto-selects mapping by project/vendor context."""
+
+    def _save_mapping(self, client, name, project=None, vendor=None):
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        data = {"name": name, "actor": "test"}
+        if project:
+            data["project"] = project
+        if vendor:
+            data["vendor"] = vendor
+        resp = client.post(
+            "/mapping/save",
+            data=data,
+            files={"mapping": ("m.json", io.BytesIO(_json.dumps(full_mapping).encode()), "application/json")},
+        )
+        assert resp.status_code == 200
+
+    def test_auto_select_unique_match(self, client):
+        """Single mapping matches project+vendor -> auto-selected, all lines match."""
+        self._save_mapping(client, "adel-ipsi", project="adel", vendor="ipsi")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        ing = data["quote_summary"]["ingestion"]
+        assert ing["line_mapping_applied"] is True
+        assert ing["mapping_source"] == "auto_selected"
+        assert ing["mapping_name_used"] == "adel-ipsi"
+        unmatched = [f for f in data["findings"] if f["type"] == "quote_line_unmatched"]
+        assert len(unmatched) == 0
+
+    def test_auto_select_by_project_only(self, client):
+        """Match on project alone when only one mapping has that project."""
+        self._save_mapping(client, "adel-ipsi", project="adel", vendor="ipsi")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "auto_selected"
+        assert ing["mapping_name_used"] == "adel-ipsi"
+
+    def test_auto_select_case_insensitive(self, client):
+        """Auto-selection is case-insensitive."""
+        self._save_mapping(client, "adel-ipsi", project="Adel", vendor="IPSI")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        assert resp.json()["quote_summary"]["ingestion"]["mapping_source"] == "auto_selected"
+
+    def test_auto_select_no_match_no_mapping(self, client):
+        """No saved mapping matches -> no mapping applied (not an error)."""
+        self._save_mapping(client, "other-map", project="other-project", vendor="other-vendor")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["line_mapping_applied"] is False
+        assert ing["mapping_source"] is None
+        assert ing["mapping_name_used"] is None
+
+    def test_auto_select_ambiguous_fails_409(self, client):
+        """Two mappings match same project -> 409 Conflict."""
+        self._save_mapping(client, "adel-ipsi-v1", project="adel", vendor="ipsi")
+        self._save_mapping(client, "adel-ipsi-v2", project="adel", vendor="ipsi")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert "adel-ipsi-v1" in detail
+        assert "adel-ipsi-v2" in detail
+
+    def test_ambiguous_resolved_by_vendor(self, client):
+        """Two mappings share project but differ by vendor -> vendor disambiguates."""
+        self._save_mapping(client, "adel-ipsi", project="adel", vendor="ipsi")
+        self._save_mapping(client, "adel-summit", project="adel", vendor="summit")
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        assert resp.status_code == 200
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "auto_selected"
+        assert ing["mapping_name_used"] == "adel-ipsi"
+
+
+class TestMappingSourceMetadata:
+    """C7B: mapping_source and mapping_name_used in response metadata."""
+
+    def test_file_upload_source(self, client):
+        """File upload -> mapping_source='file_upload', mapping_name_used=None."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "file_upload"
+        assert ing["mapping_name_used"] is None
+
+    def test_named_source(self, client):
+        """mapping_name -> mapping_source='named', mapping_name_used set."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        client.post(
+            "/mapping/save",
+            data={"name": "my-map", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(_json.dumps(full_mapping).encode()), "application/json")},
+        )
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "mapping_name": "my-map"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "named"
+        assert ing["mapping_name_used"] == "my-map"
+
+    def test_no_mapping_source_null(self, client):
+        """No mapping at all -> mapping_source=None, mapping_name_used=None."""
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] is None
+        assert ing["mapping_name_used"] is None
+
+    def test_file_upload_takes_precedence_over_auto_select(self, client):
+        """File upload wins even when project/vendor would match a saved mapping."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+
+        # Save a mapping with project/vendor
+        client.post(
+            "/mapping/save",
+            data={"name": "saved-one", "actor": "test", "project": "adel", "vendor": "ipsi"},
+            files={"mapping": ("m.json", io.BytesIO(_json.dumps(full_mapping).encode()), "application/json")},
+        )
+
+        mapping_bytes = _json.dumps(full_mapping).encode()
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={"actor": "test", "doc_type": "QUOTE", "project": "adel", "vendor": "ipsi"},
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "line_to_item_mapping": ("mapping.json", io.BytesIO(mapping_bytes), "application/json"),
+                },
+            )
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "file_upload"
+        assert ing["mapping_name_used"] is None
+
+    def test_mapping_name_takes_precedence_over_auto_select(self, client):
+        """mapping_name wins over project/vendor auto-selection."""
+        import json as _json
+        mapping_path = STRUCTURED_DIR / "line_to_item_mapping.json"
+        with open(mapping_path, "r", encoding="utf-8") as f:
+            full_mapping = _json.load(f)["full_mapping"]
+        mapping_bytes = _json.dumps(full_mapping).encode()
+
+        # Save two mappings — one with context, one without
+        client.post(
+            "/mapping/save",
+            data={"name": "with-ctx", "actor": "test", "project": "adel", "vendor": "ipsi"},
+            files={"mapping": ("m.json", io.BytesIO(mapping_bytes), "application/json")},
+        )
+        client.post(
+            "/mapping/save",
+            data={"name": "explicit-pick", "actor": "test"},
+            files={"mapping": ("m.json", io.BytesIO(mapping_bytes), "application/json")},
+        )
+
+        bid_path = STRUCTURED_DIR / "bid_items.xlsx"
+        quote_path = STRUCTURED_DIR / "quote_lines.xlsx"
+        with open(bid_path, "rb") as bf, open(quote_path, "rb") as qf:
+            resp = client.post(
+                "/validate",
+                data={
+                    "actor": "test", "doc_type": "QUOTE",
+                    "mapping_name": "explicit-pick",
+                    "project": "adel", "vendor": "ipsi",
+                },
+                files={
+                    "bid_items": ("bid_items.xlsx", bf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                    "quote_lines": ("quote_lines.xlsx", qf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+                },
+            )
+        ing = resp.json()["quote_summary"]["ingestion"]
+        assert ing["mapping_source"] == "named"
+        assert ing["mapping_name_used"] == "explicit-pick"
 
 
 def _minimal_pdf() -> bytes:
