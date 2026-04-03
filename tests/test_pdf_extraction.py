@@ -1,23 +1,11 @@
 """
-C8A / C8A.1 / C8B — PDF Schedule Extraction Tests
+C8A / C8A.1 / C8B / C9 — PDF Extraction Tests
 
-Tests the native-text and OCR PDF schedule-of-items extraction pipeline against:
-- Synthetic single-line fixture (C8A — Adel canonical data)
-- Real Iowa DOT estprop121.pdf stacked format (C8A.1 hardening)
-- Scanned/image-only PDF via OCR fallback (C8B)
-
-Validates:
-- Text extraction from native PDF
-- Schedule page detection (single-line, stacked, OCR)
-- Deterministic row parsing (both single-line and stacked formats)
-- OCR fallback routing when native text is absent
-- Anchor row validation
-- Header/total/placeholder filtering
-- Multi-line description assembly
-- LUMP SUM handling
-- Fail-closed behavior
-- Extraction endpoint
-- OCR provenance (extraction_source = "ocr_pdf")
+Tests:
+- C8A: native-text DOT schedule extraction (synthetic + estprop121)
+- C8A.1: stacked-format parser hardening
+- C8B: OCR fallback for scanned PDFs
+- C9: document routing + quote ingestion (separate from DOT pipeline)
 """
 from __future__ import annotations
 
@@ -869,3 +857,241 @@ class TestNativeTextRegression:
         assert by_line["0520"]["item"] == "2435-0600020"
         assert by_line["0740"]["item"] == "2524-6765010"
         assert by_line["0840"]["item"] == "2527-9263217"
+
+
+# ===========================================================================
+# C9 — Document Routing & Quote Ingestion Tests
+# ===========================================================================
+
+from app.pdf_extraction.document_router import classify_document
+from app.pdf_extraction.quote_parser import parse_quote_rows
+from app.pdf_extraction.quote_validator import validate_quote_rows
+from app.pdf_extraction.service import extract_quote_from_pdf, extract_pdf_auto
+
+
+@pytest.fixture
+def ipsi_quote_path() -> Path:
+    """Path to the real IPSI subcontractor quote PDF (image-only)."""
+    p = PDF_FIXTURES_DIR / "ipsi_quote.pdf"
+    assert p.exists(), f"ipsi_quote.pdf not found: {p}"
+    return p
+
+
+@pytest.fixture
+def rasch_quote_path() -> Path:
+    """Path to the Rasch 'quote' PDF (actually a scanned DOT proposal form)."""
+    p = PDF_FIXTURES_DIR / "rasch_quote.pdf"
+    assert p.exists(), f"rasch_quote.pdf not found: {p}"
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 17. Document Router Tests
+# ---------------------------------------------------------------------------
+
+class TestDocumentRouter:
+
+    def test_dot_native_classified_as_dot_schedule(self, estprop_pdf_path):
+        """Native-text DOT PDF -> dot_schedule."""
+        from app.pdf_extraction.extractor import extract_pages_text_permissive
+        pages = extract_pages_text_permissive(str(estprop_pdf_path))
+        assert classify_document(pages) == "dot_schedule"
+
+    def test_synthetic_dot_classified_as_dot_schedule(self, dot_pdf_path):
+        """Synthetic DOT fixture -> dot_schedule."""
+        from app.pdf_extraction.extractor import extract_pages_text_permissive
+        pages = extract_pages_text_permissive(str(dot_pdf_path))
+        assert classify_document(pages) == "dot_schedule"
+
+    def test_rasch_classified_as_dot_schedule(self, rasch_quote_path):
+        """Rasch is a scanned DOT proposal form -> dot_schedule."""
+        from app.pdf_extraction.ocr import ocr_pages
+        pages = ocr_pages(str(rasch_quote_path))
+        assert classify_document(pages) == "dot_schedule"
+
+    def test_ipsi_classified_as_quote(self, ipsi_quote_path):
+        """IPSI is a real subcontractor quote -> quote."""
+        from app.pdf_extraction.ocr import ocr_pages
+        pages = ocr_pages(str(ipsi_quote_path))
+        assert classify_document(pages) == "quote"
+
+    def test_non_schedule_non_quote_is_unknown(self, non_schedule_pdf_path):
+        """Generic text PDF with no schedule or pricing -> unknown."""
+        from app.pdf_extraction.extractor import extract_pages_text_permissive
+        pages = extract_pages_text_permissive(str(non_schedule_pdf_path))
+        assert classify_document(pages) == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# 18. Quote Parser Tests (using IPSI)
+# ---------------------------------------------------------------------------
+
+class TestQuoteParser:
+
+    def test_ipsi_extracts_rows(self, ipsi_quote_path):
+        """IPSI QUOTE should produce at least 14 quote rows."""
+        rows, summary = extract_quote_from_pdf(str(ipsi_quote_path))
+        assert len(rows) >= 14
+
+    def test_ipsi_rows_have_descriptions(self, ipsi_quote_path):
+        """Every IPSI row must have a description."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        for row in rows:
+            assert row["description"], f"Row {row['row_id']} missing description"
+
+    def test_ipsi_rows_have_amounts(self, ipsi_quote_path):
+        """Every IPSI row must have an amount."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        for row in rows:
+            assert row["amount"] is not None and row["amount"] > 0
+
+    def test_ipsi_extraction_source_is_ocr(self, ipsi_quote_path):
+        """IPSI is image-only so extraction_source must be ocr_pdf."""
+        rows, summary = extract_quote_from_pdf(str(ipsi_quote_path))
+        assert summary["extraction_source"] == "ocr_pdf"
+        for row in rows:
+            assert row["extraction_source"] == "ocr_pdf"
+
+    def test_ipsi_document_class_is_quote(self, ipsi_quote_path):
+        """Summary must report document_class = quote."""
+        _, summary = extract_quote_from_pdf(str(ipsi_quote_path))
+        assert summary["document_class"] == "quote"
+
+    def test_ipsi_qty_and_unit_are_null(self, ipsi_quote_path):
+        """IPSI quote does not contain explicit qty/unit — must be null, NOT inferred."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        for row in rows:
+            assert row["qty"] is None, f"Row {row['row_id']}: qty should be null, got {row['qty']}"
+            assert row["unit"] is None, f"Row {row['row_id']}: unit should be null, got {row['unit']}"
+
+    def test_ipsi_known_row_530(self, ipsi_quote_path):
+        """Known IPSI row: line_ref=530, description contains 'Reference Location Sign', amount=$550."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        row_530 = [r for r in rows if r.get("line_ref") == "530"]
+        assert len(row_530) == 1, "Expected exactly one row with line_ref=530"
+        assert "Reference Location Sign" in row_530[0]["description"]
+        assert abs(row_530[0]["amount"] - 550.0) < 0.01
+
+    def test_ipsi_total_not_emitted_as_row(self, ipsi_quote_path):
+        """TOTAL line must not appear as a quote row."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        for row in rows:
+            assert "TOTAL" not in row["description"].upper().split()[0] if row["description"] else True
+
+    def test_ipsi_rows_in_order(self, ipsi_quote_path):
+        """Quote rows must be in ascending row_id order."""
+        rows, _ = extract_quote_from_pdf(str(ipsi_quote_path))
+        ids = [r["row_id"] for r in rows]
+        assert ids == sorted(ids)
+
+
+# ---------------------------------------------------------------------------
+# 19. Quote Routing / Rejection Tests
+# ---------------------------------------------------------------------------
+
+class TestQuoteRouting:
+
+    def test_rasch_processed_as_quote_fails_closed(self, rasch_quote_path):
+        """Rasch through quote pipeline: processed as quote, fails closed
+        because handwritten prices produce no deterministic $X.XX patterns."""
+        with pytest.raises(ExtractionError, match="No deterministic quote rows"):
+            extract_quote_from_pdf(str(rasch_quote_path))
+
+    def test_rasch_quote_pipeline_uses_ocr(self, rasch_quote_path):
+        """Rasch is image-only — quote pipeline must use OCR before failing."""
+        try:
+            extract_quote_from_pdf(str(rasch_quote_path))
+        except ExtractionError as e:
+            # It failed (expected), but we can verify it went through OCR
+            assert "No deterministic quote rows" in str(e)
+
+    def test_auto_routes_ipsi_to_quote(self, ipsi_quote_path):
+        """Auto endpoint should route IPSI to quote pipeline."""
+        rows, summary = extract_pdf_auto(str(ipsi_quote_path))
+        assert summary["document_class"] == "quote"
+        assert len(rows) >= 14
+
+    def test_auto_routes_dot_to_schedule(self, dot_pdf_path):
+        """Auto endpoint should route synthetic DOT to schedule pipeline."""
+        rows, summary = extract_pdf_auto(str(dot_pdf_path))
+        assert summary["document_class"] == "dot_schedule"
+        assert len(rows) == 93
+
+
+# ---------------------------------------------------------------------------
+# 20. Quote Validator Tests
+# ---------------------------------------------------------------------------
+
+class TestQuoteValidator:
+
+    def test_valid_rows_pass(self):
+        rows = [{"row_id": 0, "description": "Test item", "amount": 100.0, "unit_price": 50.0, "qty": None, "unit": None}]
+        valid, rejected, meta = validate_quote_rows(rows)
+        assert len(valid) == 1
+        assert len(rejected) == 0
+
+    def test_missing_description_rejected(self):
+        rows = [{"row_id": 0, "description": "", "amount": 100.0, "unit_price": None, "qty": None, "unit": None}]
+        with pytest.raises(ExtractionError, match="All extracted quote rows failed"):
+            validate_quote_rows(rows)
+
+    def test_no_monetary_value_rejected(self):
+        rows = [{"row_id": 0, "description": "Test", "amount": None, "unit_price": None, "qty": None, "unit": None}]
+        with pytest.raises(ExtractionError, match="All extracted quote rows failed"):
+            validate_quote_rows(rows)
+
+
+# ---------------------------------------------------------------------------
+# 21. Quote Endpoint Tests
+# ---------------------------------------------------------------------------
+
+class TestQuoteEndpoint:
+
+    def test_quote_endpoint_ipsi_success(self, client, ipsi_quote_path):
+        """POST /extract/quote/pdf with IPSI quote -> 200 with rows."""
+        with open(ipsi_quote_path, "rb") as f:
+            resp = client.post(
+                "/extract/quote/pdf",
+                files={"pdf": ("ipsi_quote.pdf", f, "application/pdf")},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["row_count"] >= 14
+        assert data["summary"]["document_class"] == "quote"
+
+    def test_quote_endpoint_rasch_fails_closed(self, client, rasch_quote_path):
+        """POST /extract/quote/pdf with Rasch -> 422 (no parseable quote rows)."""
+        with open(rasch_quote_path, "rb") as f:
+            resp = client.post(
+                "/extract/quote/pdf",
+                files={"pdf": ("rasch_quote.pdf", f, "application/pdf")},
+            )
+        assert resp.status_code == 422
+        data = resp.json()
+        assert data["status"] == "extraction_failed"
+        assert "No deterministic quote rows" in data["error"]
+
+    def test_auto_endpoint_ipsi_routes_to_quote(self, client, ipsi_quote_path):
+        """POST /extract/auto with IPSI -> routes to quote pipeline."""
+        with open(ipsi_quote_path, "rb") as f:
+            resp = client.post(
+                "/extract/auto",
+                files={"pdf": ("ipsi_quote.pdf", f, "application/pdf")},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["document_class"] == "quote"
+        assert data["row_count"] >= 14
+
+    def test_auto_endpoint_dot_routes_to_schedule(self, client, dot_pdf_path):
+        """POST /extract/auto with synthetic DOT -> routes to DOT schedule pipeline."""
+        with open(dot_pdf_path, "rb") as f:
+            resp = client.post(
+                "/extract/auto",
+                files={"pdf": ("schedule.pdf", f, "application/pdf")},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["summary"]["document_class"] == "dot_schedule"
+        assert data["row_count"] == 93

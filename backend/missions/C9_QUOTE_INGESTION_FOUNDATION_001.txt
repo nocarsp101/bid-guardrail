@@ -1,0 +1,239 @@
+MISSION: C9_QUOTE_INGESTION_FOUNDATION_001
+
+OBJECTIVE:
+Build the foundation for deterministic ingestion of messy subcontractor quote PDFs into a structured quote-row schema, without forcing those documents through the DOT proposal schedule parser.
+
+CONTEXT:
+C8A and C8B established a valid pipeline for Iowa DOT-style proposal schedules:
+
+* native-text extraction
+* OCR fallback
+* deterministic parser
+* strict validator
+* fail-closed behavior
+
+That pipeline is correct for DOT proposal schedules.
+
+However, real subcontractor quotes are materially different:
+
+* no standard proposal line numbering
+* no DOT item-number structure
+* inconsistent vendor layouts
+* varying units and descriptions
+* partial scopes
+* handwritten annotations
+* loose formatting and non-tabular layouts
+
+The system must NOT force arbitrary quote PDFs through the DOT schedule extraction path.
+
+This mission starts a separate quote-ingestion lane.
+
+CORE PRINCIPLE:
+Quote ingestion is a different document class.
+It must have its own deterministic extraction contract, routing, and failure behavior.
+
+SCOPE:
+IN SCOPE:
+
+* Define a quote-document ingestion path separate from DOT proposal extraction
+* Build a minimal structured quote-row schema
+* Detect whether a PDF is likely a quote vs DOT proposal schedule
+* Extract candidate quote rows from one known real quote sample
+* Preserve fail-closed behavior
+* Surface uncertainty explicitly
+* Keep this as ingestion only, not reconciliation
+
+OUT OF SCOPE:
+
+* Reconciliation logic changes
+* Mapping logic changes
+* UI changes
+* Human review workflow
+* Automatic quote-to-bid-item matching
+* Fuzzy matching of item numbers
+* Scope interpretation or semantic normalization
+* Arbitrary support for all quote vendors
+
+NON-NEGOTIABLE RULES:
+
+1. Do not reuse the DOT parser for quote PDFs
+2. Do not invent line numbers or item numbers when absent
+3. Do not guess units, quantities, or prices
+4. Do not silently coerce quote text into bid schema
+5. Fail closed on ambiguity
+6. Separation of concerns must be preserved:
+   quote ingestion ≠ mapping ≠ reconciliation
+7. Traceability is mandatory
+
+MISSION GOAL:
+Create a first-pass quote ingestion foundation that can extract structured rows from one known subcontractor quote sample if the structure is sufficiently explicit, or fail clearly if it is not.
+
+DOCUMENT CLASSES (MUST REMAIN SEPARATE):
+A. DOT proposal schedule
+
+* proposal line number
+* DOT item number
+* quantity
+* unit
+* description
+
+B. Subcontractor quote
+
+* vendor-defined structure
+* may include description, quantity, unit, price, subtotal
+* may omit any of the above
+* may have no formal row identifiers
+
+QUOTE ROW TARGET SHAPE (FOUNDATION ONLY):
+Use a quote-specific row schema such as:
+
+{
+"row_id": "generated deterministic local row ordinal",
+"description": "...",
+"qty": 12.0,
+"unit": "LF",
+"unit_price": 18.5,
+"amount": 222.0,
+"source_page": 1,
+"extraction_source": "native_pdf" or "ocr_pdf"
+}
+
+RULES FOR THIS SHAPE:
+
+* row_id may be generated deterministically as a local extraction ordinal only
+* row_id is NOT a semantic identifier
+* Do NOT generate fake item numbers
+* Missing fields may remain null if truly absent
+* But rows must not be emitted if the parser cannot determine they are real row boundaries
+
+REQUIRED COMPONENTS:
+
+1. DOCUMENT ROUTER
+
+* Determine whether input is likely:
+  a) DOT proposal schedule
+  b) quote / non-DOT tabular commercial document
+  c) unsupported / unknown
+* Routing must be deterministic
+* Unknown documents must fail clearly
+
+2. QUOTE EXTRACTION MODULE
+
+* Separate from DOT extraction module
+* Works on one known quote sample first
+* Supports native text first, OCR fallback only if needed
+* OCR remains acquisition only
+
+3. QUOTE ROW PARSER
+
+* Quote-specific parser
+* Must identify real row boundaries deterministically
+* Must not assume DOT-style patterns
+* Must support nulls for genuinely absent fields
+* Must reject narrative blocks, headers, totals, and footer noise
+
+4. QUOTE VALIDATOR
+
+* Validate extracted quote rows against quote schema
+* Require at minimum:
+
+  * description present
+  * row boundary confidence determined by explicit structure
+* Reject obviously malformed rows
+* Reject totals/subtotals being treated as line items unless explicitly classified
+
+5. TRACEABILITY
+
+* raw source text or OCR text must be traceable to each emitted row
+* preserve page reference
+* no silent transformation
+
+6. ENDPOINT / SERVICE INTEGRATION
+
+* Extend extraction service safely, or add a separate quote extraction endpoint
+* Response must make document class explicit:
+
+  * dot_schedule
+  * quote
+  * unknown
+* Response must disclose source:
+
+  * native_pdf
+  * ocr_pdf
+* Response must disclose success vs fail-closed
+
+STRICT FAILURE CONDITIONS:
+Return explicit failure if:
+
+* no deterministic row structure is present
+* document is mostly narrative
+* OCR text is too noisy
+* parser cannot distinguish rows from headers/totals
+* emitted rows would be speculative
+
+DO NOT:
+
+* map quote rows to DOT bid items
+* infer missing quantities from prices
+* infer units from description semantics
+* split or merge rows based on “what seems right”
+* claim a quote was parsed successfully when only fragments were found
+
+KNOWN REALITY TO RESPECT:
+Many subcontractor quotes will not be safely machine-ingestable without review.
+That is acceptable.
+This mission is about building the foundation honestly.
+
+VALIDATION REQUIREMENT:
+Use at least one real quote PDF sample, preferably:
+
+* Rasch Quote.pdf
+  or another real subcontractor quote currently available
+
+Success is NOT defined as “all quotes work.”
+Success is defined as one of the following:
+A. deterministic extraction of meaningful quote rows from the known sample
+OR
+B. honest fail-closed result with explicit reason why the quote is not structurally machine-ingestable
+
+TESTING REQUIREMENTS:
+
+* Add routing tests:
+
+  * DOT schedule recognized as dot_schedule
+  * known quote recognized as quote or unsupported_quote
+* Add quote parser tests
+* Add fail-closed tests for totals/header noise
+* Add endpoint test for known quote sample
+* Preserve all existing C8A/C8B regressions
+
+DECISION RIGHTS:
+If the quote does not contain enough explicit structure for deterministic row extraction:
+FAIL.
+Do not guess.
+
+ARCHITECTURE RULES:
+
+* Do not weaken C8A/C8B path
+* Do not contaminate DOT schedule parser with quote logic
+* Keep quote ingestion as a separate module or clearly separated branch
+* No reconciliation changes
+
+AUDIT OUTPUT REQUIRED:
+At mission end, report:
+
+* files added
+* files modified
+* document routing logic
+* quote schema chosen
+* whether known quote parsed or failed
+* exact live endpoint output from the real quote sample
+* known limitations
+* whether DOT schedule path was preserved untouched
+
+END STATE:
+The system can distinguish DOT schedules from quote PDFs and either:
+
+* extract structured quote rows honestly from a known quote sample
+  or
+* fail closed with a document-class-aware reason.

@@ -24,7 +24,7 @@ from app.quote_reconciliation.pipeline import run_structured_pipeline
 from app.operator_report import build_operator_report
 from app.export_report import render_html, render_csv
 
-from app.pdf_extraction.service import extract_bid_items_from_pdf
+from app.pdf_extraction.service import extract_bid_items_from_pdf, extract_quote_from_pdf, extract_pdf_auto
 from app.pdf_extraction.extractor import ExtractionError
 
 
@@ -78,6 +78,91 @@ async def extract_bid_items_pdf(
 
     try:
         rows, summary = extract_bid_items_from_pdf(tmp_path)
+    except ExtractionError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "extraction_failed",
+                "error": str(e),
+                "meta": e.meta,
+            },
+        )
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+    return {
+        "status": "success",
+        "rows": rows,
+        "row_count": len(rows),
+        "summary": summary,
+    }
+
+
+@app.post("/extract/quote/pdf")
+async def extract_quote_pdf(
+    pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+):
+    """
+    Extract structured quote rows from a subcontractor/vendor quote PDF.
+
+    Separate from DOT schedule extraction. Uses quote-specific parser.
+    Returns quote rows with provenance, or explicit failure.
+    """
+    import tempfile
+
+    if not pdf.filename or not pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
+
+    content = await pdf.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        rows, summary = extract_quote_from_pdf(tmp_path)
+    except ExtractionError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "extraction_failed",
+                "error": str(e),
+                "meta": e.meta,
+            },
+        )
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+    return {
+        "status": "success",
+        "rows": rows,
+        "row_count": len(rows),
+        "summary": summary,
+    }
+
+
+@app.post("/extract/auto")
+async def extract_auto(
+    pdf: UploadFile = File(..., description="PDF document (DOT schedule or quote)"),
+):
+    """
+    Auto-routing extraction: classifies document, routes to correct pipeline.
+
+    Returns structured rows with document_class in summary.
+    """
+    import tempfile
+
+    if not pdf.filename or not pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
+
+    content = await pdf.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        rows, summary = extract_pdf_auto(tmp_path)
     except ExtractionError as e:
         return JSONResponse(
             status_code=422,
