@@ -1,0 +1,171 @@
+MISSION: C8A_PDF_SCHEDULE_EXTRACTION_001
+
+OBJECTIVE:
+Build a deterministic native-text PDF schedule-of-items extractor that outputs the existing structured bid row schema and validates against known truth.
+
+CONTEXT:
+The system currently operates correctly on structured inputs (Excel/JSON).
+
+Real-world inputs are PDF schedules (DOT format). These must be ingested WITHOUT breaking determinism or introducing guessing.
+
+This mission introduces ONLY the extraction layer.
+
+SCOPE:
+IN SCOPE:
+
+* Native-text PDF parsing (no OCR)
+* Schedule section detection
+* Row extraction (line_number, item, description, qty, unit)
+* Output normalization into existing bid row schema
+* Strict validation (fail-closed)
+* Test against known truth rows
+
+OUT OF SCOPE:
+
+* OCR (C8B)
+* Reconciliation logic changes
+* Mapping changes
+* UI changes
+* “Handling all PDFs”
+* Fuzzy matching or heuristics
+
+HARD RULES:
+
+1. Deterministic only
+2. No guessing table structure
+3. No silent fallback
+4. Fail-closed on ambiguity
+5. No modification of protected reconciliation engine
+6. Separation of concerns strictly enforced
+
+INPUT ASSUMPTION:
+PDF is native text (NOT scanned)
+
+OUTPUT CONTRACT (MANDATORY):
+Each extracted row MUST match:
+
+{
+"line_number": "0520",
+"item": "2524-6765010",
+"description": "...",
+"qty": 1,
+"unit": "EACH"
+}
+
+REQUIRED COMPONENTS:
+
+1. PDF EXTRACTION SERVICE
+
+* Isolated module
+* Extracts raw text from PDF
+* No OCR fallback
+
+2. SCHEDULE DETECTION
+
+* Identify schedule-of-items section deterministically
+* Must NOT rely on fuzzy heuristics
+
+3. ROW PARSER
+
+* Deterministically parse rows into fields:
+
+  * line_number
+  * item
+  * description
+  * qty
+  * unit
+* Reject rows if any required field is missing or ambiguous
+
+4. VALIDATOR
+
+* Enforce required fields
+* Reject malformed rows
+* Reject incomplete extraction
+
+5. TEST FIXTURE
+
+* One known DOT PDF
+* One known truth snapshot
+
+VALIDATION REQUIREMENT (CRITICAL):
+
+The following MUST match exactly:
+
+0520 → 2524-6765010
+0580 → 2524-9325001
+0600 → 2527-9263217
+
+If ANY mismatch:
+→ extraction is invalid
+→ STOP
+
+FAILURE CONDITIONS:
+
+STOP immediately if:
+
+* Schedule section cannot be isolated clearly
+* Table structure is inconsistent
+* Required fields cannot be reliably parsed
+* Extraction requires heuristics or guessing
+
+SUCCESS CRITERIA:
+
+PDF → extracted rows → normalized → matches known truth
+
+NOT acceptable:
+
+* partial extraction
+* approximate matches
+* missing fields
+* reordered or misaligned rows
+
+ARCHITECTURE RULES:
+
+* Extraction layer feeds existing ingestion pipeline
+* No coupling to reconciliation engine
+* No mutation of downstream logic
+* Maintain pipeline purity:
+  ingest → normalize → map → reconcile
+
+DECISION RIGHTS:
+
+If ambiguity exists:
+→ FAIL
+→ DO NOT GUESS
+
+STOP CONDITIONS:
+
+If native-text extraction cannot reliably produce structured rows:
+→ STOP mission
+→ report limitation
+→ escalate to C8B (OCR)
+
+EXECUTION PLAN:
+
+1. Build PDF text extraction module
+2. Implement schedule section detection
+3. Implement deterministic row parser
+4. Implement strict validator
+5. Run against known PDF
+6. Compare against known truth rows
+7. Output validation report
+
+VALIDATION OUTPUT:
+
+Must clearly show:
+
+* extracted rows
+* matched anchor rows
+* any mismatches (if present)
+* pass/fail status
+
+AUDIT REQUIREMENT:
+
+All extracted rows must be traceable:
+raw PDF text → parsed row → normalized output
+
+NO silent transformations
+
+END STATE:
+
+System can correctly extract ONE DOT schedule from a native-text PDF with full determinism and validation.

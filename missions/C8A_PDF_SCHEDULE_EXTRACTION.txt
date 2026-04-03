@@ -1,0 +1,288 @@
+🧱 MISSION: C8A_PDF_SCHEDULE_EXTRACTION
+
+🎯 OBJECTIVE
+
+Build the first controlled PDF ingestion path for DOT-style schedule-of-items extraction from digitally-readable PDFs.
+
+This mission is NOT generic OCR ingestion.
+This mission establishes the clean PDF extraction lane and the canonical output shape that later OCR fallback must target.
+
+The goal is to extract bid schedule line items from native text PDFs into the same structured shape already proven by the current system.
+
+---
+
+🧠 CONTEXT
+
+Current system state after C7D:
+
+- deterministic reconciliation engine works
+- mapping persistence and auto-selection work
+- operator workflow exists
+- export layer exists
+- structured bid_items + quote_lines path is proven
+
+Current gap:
+
+The system still assumes staff can provide structured spreadsheet inputs.
+
+That is not sufficient for real-world usage because many bids begin as PDFs.
+
+However, not all PDFs require OCR.
+Many DOT bid forms are text-based and table-like enough for native extraction.
+
+We must build the clean path first before introducing OCR fallback.
+
+---
+
+🧱 PRODUCT REQUIREMENT
+
+The system must be able to ingest a DOT-style proposal PDF schedule of items and extract line items into the canonical structured bid shape currently accepted by the validation system.
+
+For this phase:
+- native text/table extraction only
+- no OCR unless absolutely required for a tiny helper
+- fail closed if extraction is not sufficiently trustworthy
+- preserve traceability from extracted row back to source page/line context where possible
+
+This mission creates the baseline ingestion lane that future OCR fallback must conform to.
+
+---
+
+🧱 SCOPE
+
+IN SCOPE:
+- text-based PDF schedule-of-items extraction
+- schedule section detection
+- proposal line / item number / description / qty / unit extraction
+- structured normalization into existing bid item schema
+- confidence / extraction metadata
+- endpoint or internal function for PDF → structured bid rows
+- tests against known DOT-like PDF sample(s)
+
+OUT OF SCOPE:
+- OCR-heavy scanned documents
+- handwritten markup extraction
+- quote PDF ingestion
+- vendor-specific messy forms
+- fuzzy extraction guessing
+- changing reconciliation rules
+- replacing current structured input flow
+
+---
+
+🔒 PROTECTED SYSTEMS
+
+DO NOT MODIFY unless absolutely required:
+- reconciliation logic
+- mapping logic
+- operator workflow logic
+- export logic
+- existing structured bid ingestion semantics
+
+PDF extraction must feed the proven structured lane, not mutate the lane.
+
+---
+
+🧩 REQUIRED DESIGN
+
+Build a dedicated PDF extraction module that:
+
+1. reads native PDF text/pages
+2. identifies schedule-of-items section(s)
+3. extracts structured line item fields
+4. normalizes them into the existing canonical bid row shape
+5. emits extraction metadata and confidence
+6. fails clearly when extraction is insufficient
+
+The implementation must be modular enough that future OCR fallback can target the same normalized output contract.
+
+Preferred structure:
+- pdf_extraction module or similar
+- pure parsing/extraction helpers where possible
+- no embedding of business comparison logic into PDF parsing
+
+---
+
+🧱 REQUIRED OUTPUT SHAPE
+
+The extracted output must align with existing structured bid ingestion expectations as closely as possible.
+
+At minimum each extracted bid row should attempt to produce:
+- proposal_line_number
+- item number
+- description
+- quantity
+- unit
+
+Optional if extractable:
+- unit_price
+- total_price
+
+Because blank DOT proposal PDFs may not contain filled prices, extraction must tolerate absent price fields.
+
+Rows must include metadata where possible:
+- source page
+- extraction source = native_pdf
+- row confidence or extraction notes
+- raw text snippet if useful for debugging
+
+---
+
+🧱 REQUIRED EXTRACTION BEHAVIOR
+
+The extractor must handle a DOT-like schedule where rows resemble:
+
+0520 2524-6765010 REMOVE AND REINSTALL SIGN AS PER PLAN EACH 1.000
+0530 2524-6765016 ...
+...
+
+The parser must:
+- detect the schedule of items pages
+- ignore header repetition across pages
+- ignore section totals and footer totals
+- carry multi-line descriptions when they wrap
+- preserve correct association between line number, item number, description, unit, and quantity
+- avoid treating unrelated notes/spec pages as bid rows
+
+It is acceptable to initially target the specific DOT schedule layout already in hand, provided the module is written as a parser for that layout rather than hardcoded one-off output.
+
+---
+
+🧱 REQUIRED CONFIDENCE / FAIL-CLOSED RULES
+
+This system must not pretend extraction succeeded if structure is weak.
+
+At minimum:
+- if no schedule rows detected → clear extraction failure
+- if rows are found but required fields are missing in too many rows → fail clearly
+- if pages are ambiguous or malformed → return explicit extraction diagnostics
+- do not silently emit garbage rows
+
+Preferred:
+- include extraction summary with counts such as:
+  - pages_scanned
+  - rows_detected
+  - rows_extracted
+  - rows_rejected
+  - schedule_pages_detected
+  - native_text_detected = true/false
+
+This summary will be critical when OCR fallback is added later.
+
+---
+
+🧱 REQUIRED INTEGRATION APPROACH
+
+Do NOT replace current /validate behavior.
+
+Instead do one of the following clean options:
+
+OPTION A (preferred):
+Add a dedicated extraction endpoint, e.g.
+- POST /extract/bid-items/pdf
+
+This returns normalized structured bid rows + extraction summary.
+
+OPTION B:
+Create an internal extractor plus tests only, if endpoint wiring would create drift.
+
+Preferred final behavior for this phase:
+- dedicated extraction endpoint
+- output can be compared to known structured truth
+- later phases can feed extracted output into existing validate/report/export flows
+
+Do not yet try to fully merge PDF ingestion into the main operator workflow until extraction quality is proven.
+
+---
+
+🧪 REQUIRED VALIDATION STRATEGY
+
+Use the known sample PDF and known structured bid file already in hand.
+
+You must validate extracted output against expected truth.
+
+Examples of correctness checks:
+- extracted row count approximately matches known schedule rows
+- specific known rows exist:
+  - 0520 → 2524-6765010
+  - 0580 → 2524-9325001
+  - 0600 → 2527-9263217
+  - etc.
+- quantities and units align with known structured source
+- wrapped descriptions are reconstructed correctly enough to be useful
+- section totals are not emitted as fake rows
+
+This mission is incomplete if extraction is merely “something came out.”
+It must be compared to known structured truth.
+
+---
+
+🧪 REQUIRED TEST COVERAGE
+
+Add tests for at least:
+
+1. extraction endpoint/function succeeds on known DOT PDF
+2. schedule pages are detected correctly
+3. extracted rows include known line items (0520, 0580, 0600 etc.)
+4. repeated page headers are ignored
+5. section totals are ignored
+6. wrapped descriptions do not break row association
+7. extraction summary is returned
+8. native_text_detected is reported correctly
+9. malformed/non-schedule PDF fails clearly
+10. prior full test suite still passes
+
+If using the known sample PDF in tests is impractical, create a small deterministic fixture that mimics the relevant structure.
+
+---
+
+📊 SUCCESS CRITERIA
+
+C8A is successful only if:
+
+1. a DOT-style native text PDF schedule can be extracted into structured bid rows
+2. extracted rows align with known structured truth on key items
+3. schedule headers/footers are ignored correctly
+4. extraction diagnostics are explicit
+5. fail-closed behavior is preserved
+6. current structured validation path remains intact
+7. old tests pass
+8. new extraction tests pass
+
+---
+
+🚫 STOP CONDITIONS
+
+STOP and report if:
+- native PDF text is insufficient for reliable extraction
+- extraction requires OCR for the sample PDF
+- parser logic starts turning into brittle page-specific hacks
+- integrating extraction threatens the current structured lane
+- confidence/failure handling cannot be made explicit
+
+Do not “make it work somehow.”
+Make the clean path work honestly.
+
+---
+
+🧾 AUDIT OUTPUT REQUIRED
+
+Claude must return:
+
+1. files created
+2. files modified
+3. extraction architecture summary
+4. endpoint/function added
+5. extraction summary shape
+6. comparison against known structured truth
+7. example extracted rows
+8. test results
+9. explicit remaining gap before OCR fallback
+
+---
+
+⚠️ FINAL RULE
+
+This mission is about defining the clean ingestion contract.
+
+OCR is acknowledged as a future necessity, but OCR must enter later as a fallback to this contract, not as a replacement for disciplined extraction.

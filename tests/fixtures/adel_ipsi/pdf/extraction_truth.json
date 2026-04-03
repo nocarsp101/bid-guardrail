@@ -1,0 +1,653 @@
+[
+  {
+    "line_number": "0010",
+    "item": "2101-0850001",
+    "description": "CLEARING AND GRUBBING",
+    "unit": "ACRE",
+    "qty": 0.2
+  },
+  {
+    "line_number": "0020",
+    "item": "2101-0850002",
+    "description": "CLEARING AND GRUBBING",
+    "unit": "UNIT",
+    "qty": 197.1
+  },
+  {
+    "line_number": "0030",
+    "item": "2102-2625000",
+    "description": "EMBANKMENT-IN-PLACE",
+    "unit": "CY",
+    "qty": 8705
+  },
+  {
+    "line_number": "0040",
+    "item": "2102-2710070",
+    "description": "EXCAVATION, CLASS 10, ROADWAY AND BORROW",
+    "unit": "CY",
+    "qty": 4682
+  },
+  {
+    "line_number": "0050",
+    "item": "2102-2712015",
+    "description": "EXCAVATION, CLASS 12, BOULDERS OR ROCK FRAGMENTS",
+    "unit": "CY",
+    "qty": 25
+  },
+  {
+    "line_number": "0060",
+    "item": "2102-2713090",
+    "description": "EXCAVATION, CLASS 13, WASTE",
+    "unit": "CY",
+    "qty": 282
+  },
+  {
+    "line_number": "0070",
+    "item": "2102-4560000",
+    "description": "LOCATING TILE LINES",
+    "unit": "STA",
+    "qty": 28
+  },
+  {
+    "line_number": "0080",
+    "item": "2105-8425015",
+    "description": "TOPSOIL, STRIP, SALVAGE AND SPREAD",
+    "unit": "CY",
+    "qty": 4047
+  },
+  {
+    "line_number": "0090",
+    "item": "2107-0875100",
+    "description": "COMPACTION WITH MOISTURE CONTROL",
+    "unit": "CY",
+    "qty": 12191
+  },
+  {
+    "line_number": "0100",
+    "item": "2115-0100000",
+    "description": "MODIFIED SUBBASE",
+    "unit": "CY",
+    "qty": 3876
+  },
+  {
+    "line_number": "0110",
+    "item": "2121-7425010",
+    "description": "GRANULAR SHOULDERS, TYPE A",
+    "unit": "TON",
+    "qty": 801
+  },
+  {
+    "line_number": "0120",
+    "item": "2122-5190095",
+    "description": "PAVED SHOULDER, P.C. CONCRETE, 9.5 IN.",
+    "unit": "SY",
+    "qty": 1431
+  },
+  {
+    "line_number": "0130",
+    "item": "2123-7450000",
+    "description": "SHOULDER CONSTRUCTION, EARTH",
+    "unit": "STA",
+    "qty": 21.5
+  },
+  {
+    "line_number": "0140",
+    "item": "2123-7450020",
+    "description": "SHOULDER FINISHING, EARTH",
+    "unit": "STA",
+    "qty": 15.5
+  },
+  {
+    "line_number": "0150",
+    "item": "2301-1033095",
+    "description": "PCC PAVEMENT, CLASS C, CLASS 3 DURABILITY, 9.5 IN.",
+    "unit": "SY",
+    "qty": 7943
+  },
+  {
+    "line_number": "0160",
+    "item": "2301-4875006",
+    "description": "MEDIAN, P.C. CONCRETE, 6 IN.",
+    "unit": "SY",
+    "qty": 1155
+  },
+  {
+    "line_number": "0170",
+    "item": "2301-7000110",
+    "description": "PAYMENT ADJ. I/D FOR PCC PAVEMENT THICKNESS",
+    "unit": "EACH",
+    "qty": 9293
+  },
+  {
+    "line_number": "0180",
+    "item": "2315-8275025",
+    "description": "SURFACING, DRIVEWAY, CLASS A CRUSHED STONE",
+    "unit": "TON",
+    "qty": 550
+  },
+  {
+    "line_number": "0190",
+    "item": "2317-7000110",
+    "description": "PAYMENT ADJ. I/D FOR PCC PAVEMENT SMOOTHNESS",
+    "unit": "EACH",
+    "qty": 5957
+  },
+  {
+    "line_number": "0200",
+    "item": "2401-6745650",
+    "description": "REMOVAL OF EXISTING STRUCTURES",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0210",
+    "item": "2401-6745765",
+    "description": "REMOVAL OF LIGHT POLES",
+    "unit": "EACH",
+    "qty": 6
+  },
+  {
+    "line_number": "0220",
+    "item": "2402-0425040",
+    "description": "FLOODED BACKFILL",
+    "unit": "CY",
+    "qty": 4
+  },
+  {
+    "line_number": "0230",
+    "item": "2402-2720100",
+    "description": "EXCAVATION, CLASS 20, ROADWAY PIPE CULVERT",
+    "unit": "CY",
+    "qty": 12
+  },
+  {
+    "line_number": "0240",
+    "item": "2416-0100015",
+    "description": "APRONS, CONCRETE, 15 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0250",
+    "item": "2416-0100018",
+    "description": "APRONS, CONCRETE, 18 IN. DIA.",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0260",
+    "item": "2416-0100024",
+    "description": "APRONS, CONCRETE, 24 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0270",
+    "item": "2416-0100030",
+    "description": "APRONS, CONCRETE, 30 IN. DIA.",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0280",
+    "item": "2416-0100054",
+    "description": "APRONS, CONCRETE, 54 IN. DIA.",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0290",
+    "item": "2416-1180054",
+    "description": "CULVERT, CONCRETE ROADWAY PIPE, 54 IN. DIA.",
+    "unit": "LF",
+    "qty": 31
+  },
+  {
+    "line_number": "0300",
+    "item": "2417-1040015",
+    "description": "CULVERT, CORRUGATED METAL ENTRANCE PIPE, 15 IN.",
+    "unit": "LF",
+    "qty": 40
+  },
+  {
+    "line_number": "0310",
+    "item": "2435-0140148",
+    "description": "MANHOLE, STORM SEWER, SW-401, 48 IN.",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0320",
+    "item": "2435-0140160",
+    "description": "MANHOLE, STORM SEWER, SW-401, 60 IN.",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0330",
+    "item": "2435-0250500",
+    "description": "INTAKE, SW-505",
+    "unit": "EACH",
+    "qty": 3
+  },
+  {
+    "line_number": "0340",
+    "item": "2435-0250600",
+    "description": "INTAKE, SW-506",
+    "unit": "EACH",
+    "qty": 6
+  },
+  {
+    "line_number": "0350",
+    "item": "2502-8212034",
+    "description": "SUBDRAIN, LONGITUDINAL, (SHOULDER) 4 IN.",
+    "unit": "LF",
+    "qty": 4298
+  },
+  {
+    "line_number": "0360",
+    "item": "2502-8221303",
+    "description": "SUBDRAIN OUTLET, DR-303",
+    "unit": "EACH",
+    "qty": 15
+  },
+  {
+    "line_number": "0370",
+    "item": "2502-8221306",
+    "description": "SUBDRAIN OUTLET, DR-306",
+    "unit": "EACH",
+    "qty": 19
+  },
+  {
+    "line_number": "0380",
+    "item": "2503-0114224",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 2000D, 24 IN.",
+    "unit": "LF",
+    "qty": 439
+  },
+  {
+    "line_number": "0390",
+    "item": "2503-0114230",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 2000D, 30 IN.",
+    "unit": "LF",
+    "qty": 185
+  },
+  {
+    "line_number": "0400",
+    "item": "2503-0114615",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 3750D, 15 IN.",
+    "unit": "LF",
+    "qty": 87
+  },
+  {
+    "line_number": "0410",
+    "item": "2503-0114618",
+    "description": "STORM SEWER GRAVITY MAIN, RCP, 3750D, 18 IN.",
+    "unit": "LF",
+    "qty": 344
+  },
+  {
+    "line_number": "0420",
+    "item": "2507-3250005",
+    "description": "ENGINEERING FABRIC",
+    "unit": "SY",
+    "qty": 318
+  },
+  {
+    "line_number": "0430",
+    "item": "2507-6800061",
+    "description": "REVETMENT, CLASS E",
+    "unit": "TON",
+    "qty": 331
+  },
+  {
+    "line_number": "0440",
+    "item": "2510-6745850",
+    "description": "REMOVAL OF PAVEMENT",
+    "unit": "SY",
+    "qty": 5337
+  },
+  {
+    "line_number": "0450",
+    "item": "2511-6745900",
+    "description": "REMOVAL OF SIDEWALK",
+    "unit": "SY",
+    "qty": 121
+  },
+  {
+    "line_number": "0460",
+    "item": "2511-7526006",
+    "description": "SIDEWALK, P.C. CONCRETE, 6 IN.",
+    "unit": "SY",
+    "qty": 605
+  },
+  {
+    "line_number": "0470",
+    "item": "2511-7528101",
+    "description": "DETECTABLE WARNINGS",
+    "unit": "SF",
+    "qty": 80
+  },
+  {
+    "line_number": "0480",
+    "item": "2523-0000100",
+    "description": "LIGHTING POLES",
+    "unit": "EACH",
+    "qty": 15
+  },
+  {
+    "line_number": "0490",
+    "item": "2523-0000200",
+    "description": "ELECTRICAL CIRCUITS",
+    "unit": "LF",
+    "qty": 2255
+  },
+  {
+    "line_number": "0500",
+    "item": "2523-0000310",
+    "description": "HANDHOLES AND JUNCTION BOXES",
+    "unit": "EACH",
+    "qty": 6
+  },
+  {
+    "line_number": "0510",
+    "item": "2523-0000400",
+    "description": "CONTROL CABINET",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0520",
+    "item": "2524-6765010",
+    "description": "REMOVE AND REINSTALL SIGN AS PER PLAN",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0530",
+    "item": "2524-6765016",
+    "description": "REMOVE AND REINSTALL REF LOCATION SIGN",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0540",
+    "item": "2524-6765210",
+    "description": "REMOVAL OF TYPE A SIGN ASSEMBLY",
+    "unit": "EACH",
+    "qty": 9
+  },
+  {
+    "line_number": "0550",
+    "item": "2524-9276010",
+    "description": "PERFORATED SQUARE STEEL TUBE POSTS",
+    "unit": "LF",
+    "qty": 323.5
+  },
+  {
+    "line_number": "0560",
+    "item": "2524-9276021",
+    "description": "STEEL POST ANCHOR, BREAK-AWAY SOIL",
+    "unit": "EACH",
+    "qty": 19
+  },
+  {
+    "line_number": "0570",
+    "item": "2524-9276024",
+    "description": "STEEL POST ANCHOR, BREAK-AWAY CONC",
+    "unit": "EACH",
+    "qty": 13
+  },
+  {
+    "line_number": "0580",
+    "item": "2524-9325001",
+    "description": "TYPE A SIGNS, SHEET ALUMINUM",
+    "unit": "SF",
+    "qty": 884.25
+  },
+  {
+    "line_number": "0590",
+    "item": "2526-8285000",
+    "description": "CONSTRUCTION SURVEY",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0600",
+    "item": "2527-9263217",
+    "description": "PAINTED PAVEMENT MARKINGS, DURABLE",
+    "unit": "STA",
+    "qty": 86
+  },
+  {
+    "line_number": "0610",
+    "item": "2527-9270112",
+    "description": "GROOVES CUT FOR PAVEMENT MARKINGS",
+    "unit": "STA",
+    "qty": 77.87
+  },
+  {
+    "line_number": "0620",
+    "item": "2528-2518000",
+    "description": "SAFETY CLOSURE",
+    "unit": "EACH",
+    "qty": 4
+  },
+  {
+    "line_number": "0630",
+    "item": "2528-8400048",
+    "description": "TEMPORARY BARRIER RAIL, CONCRETE",
+    "unit": "LF",
+    "qty": 1100
+  },
+  {
+    "line_number": "0640",
+    "item": "2528-8400256",
+    "description": "TEMPORARY TRAFFIC SIGNALS",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0650",
+    "item": "2528-8445110",
+    "description": "TRAFFIC CONTROL",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0660",
+    "item": "2528-8445113",
+    "description": "FLAGGERS",
+    "unit": "EACH",
+    "qty": 120
+  },
+  {
+    "line_number": "0670",
+    "item": "2528-9290050",
+    "description": "PORTABLE DYNAMIC MESSAGE SIGN (PDMS)",
+    "unit": "CDAY",
+    "qty": 56
+  },
+  {
+    "line_number": "0680",
+    "item": "2533-4980005",
+    "description": "MOBILIZATION",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0690",
+    "item": "2551-0000110",
+    "description": "TEMP CRASH CUSHION",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0700",
+    "item": "2599-9999005",
+    "description": "('EACH' ITEM) INTAKE, SW-516",
+    "unit": "EACH",
+    "qty": 1
+  },
+  {
+    "line_number": "0710",
+    "item": "2599-9999010",
+    "description": "('LUMP SUM' ITEM) RRFB, NB EXIT",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0720",
+    "item": "2599-9999010",
+    "description": "('LUMP SUM' ITEM) RRFB, SB ENTRY",
+    "unit": "LUMP SUM",
+    "qty": 1
+  },
+  {
+    "line_number": "0730",
+    "item": "2599-9999018",
+    "description": "('SY' ITEM) PCC PAVEMENT, COLORED",
+    "unit": "SY",
+    "qty": 385
+  },
+  {
+    "line_number": "0740",
+    "item": "2601-2634100",
+    "description": "MULCHING",
+    "unit": "ACRE",
+    "qty": 7
+  },
+  {
+    "line_number": "0750",
+    "item": "2601-2636043",
+    "description": "SEEDING AND FERTILIZING (RURAL)",
+    "unit": "ACRE",
+    "qty": 1.1
+  },
+  {
+    "line_number": "0760",
+    "item": "2601-2636044",
+    "description": "SEEDING AND FERTILIZING (URBAN)",
+    "unit": "ACRE",
+    "qty": 2.4
+  },
+  {
+    "line_number": "0770",
+    "item": "2601-2642100",
+    "description": "STABILIZING CROP - SEEDING AND FERT",
+    "unit": "ACRE",
+    "qty": 3.5
+  },
+  {
+    "line_number": "0780",
+    "item": "2602-0000020",
+    "description": "SILT FENCE",
+    "unit": "LF",
+    "qty": 2020
+  },
+  {
+    "line_number": "0790",
+    "item": "2602-0000030",
+    "description": "SILT FENCE FOR DITCH CHECKS",
+    "unit": "LF",
+    "qty": 857
+  },
+  {
+    "line_number": "0800",
+    "item": "2602-0000050",
+    "description": "SILT BASINS",
+    "unit": "EACH",
+    "qty": 10
+  },
+  {
+    "line_number": "0810",
+    "item": "2602-0000071",
+    "description": "REMOVAL OF SILT FENCE",
+    "unit": "LF",
+    "qty": 1433
+  },
+  {
+    "line_number": "0820",
+    "item": "2602-0000080",
+    "description": "REMOVAL OF SILT BASINS",
+    "unit": "EACH",
+    "qty": 5
+  },
+  {
+    "line_number": "0830",
+    "item": "2602-0000101",
+    "description": "MAINTENANCE OF SILT FENCE",
+    "unit": "LF",
+    "qty": 287
+  },
+  {
+    "line_number": "0840",
+    "item": "2602-0000160",
+    "description": "ROCK CHECK DAM",
+    "unit": "LF",
+    "qty": 86
+  },
+  {
+    "line_number": "0850",
+    "item": "2602-0000170",
+    "description": "MAINTENANCE OF ROCK CHECK DAM",
+    "unit": "EACH",
+    "qty": 18
+  },
+  {
+    "line_number": "0860",
+    "item": "2602-0000180",
+    "description": "REMOVAL OF ROCK CHECK DAM",
+    "unit": "EACH",
+    "qty": 6
+  },
+  {
+    "line_number": "0870",
+    "item": "2602-0000312",
+    "description": "PERIMETER AND SLOPE SEDIMENT CONTROL",
+    "unit": "LF",
+    "qty": 1536
+  },
+  {
+    "line_number": "0880",
+    "item": "2602-0000351",
+    "description": "REMOVAL OF PERIMETER AND SLOPE",
+    "unit": "LF",
+    "qty": 1536
+  },
+  {
+    "line_number": "0890",
+    "item": "2602-0000530",
+    "description": "GRATE INTAKE SEDIMENT FILTER BAG",
+    "unit": "EACH",
+    "qty": 20
+  },
+  {
+    "line_number": "0900",
+    "item": "2602-0000540",
+    "description": "MAINTENANCE OF GRATE INTAKE FILTER",
+    "unit": "EACH",
+    "qty": 20
+  },
+  {
+    "line_number": "0910",
+    "item": "2602-0000550",
+    "description": "REMOVAL OF GRATE INTAKE FILTER BAG",
+    "unit": "EACH",
+    "qty": 20
+  },
+  {
+    "line_number": "0920",
+    "item": "2602-0010010",
+    "description": "MOBILIZATIONS, EROSION CONTROL",
+    "unit": "EACH",
+    "qty": 2
+  },
+  {
+    "line_number": "0930",
+    "item": "2602-0010020",
+    "description": "MOBILIZATIONS, EMERGENCY EROSION",
+    "unit": "EACH",
+    "qty": 1
+  }
+]

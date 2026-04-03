@@ -24,6 +24,9 @@ from app.quote_reconciliation.pipeline import run_structured_pipeline
 from app.operator_report import build_operator_report
 from app.export_report import render_html, render_csv
 
+from app.pdf_extraction.service import extract_bid_items_from_pdf
+from app.pdf_extraction.extractor import ExtractionError
+
 
 APP_NAME = "Bid Guardrail MVP (Week-2)"
 DATA_DIR = os.getenv("BID_GUARDRAIL_DATA_DIR", "/data")
@@ -46,6 +49,54 @@ mapping_store = MappingStore(DATA_DIR)
 @app.get("/health")
 def health():
     return {"status": "ok", "app": APP_NAME}
+
+
+# ---------------------------------------------------------------------------
+# PDF Schedule Extraction (C8A)
+# ---------------------------------------------------------------------------
+
+@app.post("/extract/bid-items/pdf")
+async def extract_bid_items_pdf(
+    pdf: UploadFile = File(..., description="Native-text PDF schedule of items"),
+):
+    """
+    Extract structured bid rows from a native-text DOT schedule PDF.
+
+    Returns normalized bid item rows and extraction diagnostics.
+    Fails closed if extraction is ambiguous or incomplete.
+    """
+    import tempfile
+
+    if not pdf.filename or not pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
+
+    # Save uploaded PDF to temp file for processing
+    content = await pdf.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        rows, summary = extract_bid_items_from_pdf(tmp_path)
+    except ExtractionError as e:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "status": "extraction_failed",
+                "error": str(e),
+                "meta": e.meta,
+            },
+        )
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+    return {
+        "status": "success",
+        "rows": rows,
+        "row_count": len(rows),
+        "summary": summary,
+    }
 
 
 # ---------------------------------------------------------------------------
