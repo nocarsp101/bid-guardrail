@@ -1,20 +1,23 @@
 """
-C8A / C8A.1 — PDF Schedule Extraction Tests
+C8A / C8A.1 / C8B — PDF Schedule Extraction Tests
 
-Tests the native-text PDF schedule-of-items extraction pipeline against:
+Tests the native-text and OCR PDF schedule-of-items extraction pipeline against:
 - Synthetic single-line fixture (C8A — Adel canonical data)
 - Real Iowa DOT estprop121.pdf stacked format (C8A.1 hardening)
+- Scanned/image-only PDF via OCR fallback (C8B)
 
 Validates:
 - Text extraction from native PDF
-- Schedule page detection
+- Schedule page detection (single-line, stacked, OCR)
 - Deterministic row parsing (both single-line and stacked formats)
+- OCR fallback routing when native text is absent
 - Anchor row validation
 - Header/total/placeholder filtering
 - Multi-line description assembly
 - LUMP SUM handling
 - Fail-closed behavior
 - Extraction endpoint
+- OCR provenance (extraction_source = "ocr_pdf")
 """
 from __future__ import annotations
 
@@ -635,3 +638,234 @@ class TestEstpropEndpoint:
         rows_by_line = {r["line_number"]: r for r in rows}
         for line_num, expected_item in anchors.items():
             assert rows_by_line[line_num]["item"] == expected_item
+
+
+# ===========================================================================
+# C8B — OCR Fallback Tests
+# ===========================================================================
+
+@pytest.fixture
+def scanned_pdf_path() -> Path:
+    """Path to the image-only (scanned) DOT schedule PDF fixture."""
+    p = PDF_FIXTURES_DIR / "dot_schedule_scanned.pdf"
+    assert p.exists(), f"Scanned PDF fixture not found: {p}. Run generate_scanned_fixture.py first."
+    return p
+
+
+# ---------------------------------------------------------------------------
+# 11. OCR Routing / Detection
+# ---------------------------------------------------------------------------
+
+class TestOcrRouting:
+
+    def test_native_pdf_does_not_trigger_ocr(self, dot_pdf_path):
+        """Native-text PDF must NOT trigger OCR."""
+        _, summary = extract_bid_items_from_pdf(str(dot_pdf_path))
+        assert summary["ocr_used"] is False
+        assert summary["extraction_source"] == "native_pdf"
+        assert summary["native_text_detected"] is True
+
+    def test_estprop_does_not_trigger_ocr(self, estprop_pdf_path):
+        """Real DOT PDF with native text must NOT trigger OCR."""
+        _, summary = extract_bid_items_from_pdf(str(estprop_pdf_path))
+        assert summary["ocr_used"] is False
+        assert summary["extraction_source"] == "native_pdf"
+
+    def test_scanned_pdf_triggers_ocr(self, scanned_pdf_path):
+        """Image-only PDF must trigger OCR fallback."""
+        _, summary = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        assert summary["ocr_used"] is True
+        assert summary["extraction_source"] == "ocr_pdf"
+        assert summary["ocr_pages"] > 0
+
+
+# ---------------------------------------------------------------------------
+# 12. OCR Extraction Quality
+# ---------------------------------------------------------------------------
+
+class TestOcrExtraction:
+
+    def test_ocr_extracts_all_fixture_rows(self, scanned_pdf_path):
+        """OCR should extract all 15 rows from the scanned fixture."""
+        rows, summary = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        assert len(rows) == 15
+
+    def test_ocr_rows_have_correct_schema(self, scanned_pdf_path):
+        """Every OCR row must have all required fields."""
+        rows, _ = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        for row in rows:
+            assert row["line_number"], f"Empty line_number"
+            assert row["item"], f"Empty item"
+            assert row["description"], f"Empty description"
+            assert row["qty"] is not None and row["qty"] > 0, f"Bad qty on {row['line_number']}"
+            assert row["unit"], f"Empty unit"
+            assert row["extraction_source"] == "ocr_pdf"
+
+    def test_ocr_rows_match_truth(self, scanned_pdf_path, extraction_truth):
+        """OCR rows must match extraction truth for first 15 items."""
+        rows, _ = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        rows_by_line = {r["line_number"]: r for r in rows}
+        truth_subset = extraction_truth[:15]
+
+        for truth in truth_subset:
+            ln = truth["line_number"]
+            assert ln in rows_by_line, f"OCR missing row {ln}"
+            actual = rows_by_line[ln]
+            assert actual["item"] == truth["item"], f"Row {ln}: item mismatch"
+            assert actual["unit"] == truth["unit"], f"Row {ln}: unit mismatch"
+            assert abs(actual["qty"] - truth["qty"]) < 0.01, f"Row {ln}: qty mismatch"
+
+    def test_ocr_first_row_exact(self, scanned_pdf_path):
+        """First OCR row: 0010 → 2101-0850001."""
+        rows, _ = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        r = rows[0]
+        assert r["line_number"] == "0010"
+        assert r["item"] == "2101-0850001"
+        assert r["unit"] == "ACRE"
+        assert abs(r["qty"] - 0.2) < 0.01
+
+    def test_ocr_rows_in_order(self, scanned_pdf_path):
+        """OCR rows must be in ascending line number order."""
+        rows, _ = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        nums = [int(r["line_number"]) for r in rows]
+        assert nums == sorted(nums)
+
+    def test_ocr_provenance_on_every_row(self, scanned_pdf_path):
+        """Every OCR row must be tagged extraction_source='ocr_pdf'."""
+        rows, _ = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        for row in rows:
+            assert row["extraction_source"] == "ocr_pdf"
+
+
+# ---------------------------------------------------------------------------
+# 13. OCR Fail-Closed Behavior
+# ---------------------------------------------------------------------------
+
+class TestOcrFailClosed:
+
+    def test_blank_image_pdf_fails(self, tmp_path):
+        """A blank image-only PDF should fail extraction."""
+        # Create a white-page image PDF
+        p = tmp_path / "blank_image.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        # Insert a blank white image
+        from PIL import Image
+        import io
+        img = Image.new("RGB", (612, 792), "white")
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        page.insert_image(fitz.Rect(0, 0, 612, 792), stream=buf.getvalue())
+        doc.save(str(p))
+        doc.close()
+
+        with pytest.raises(ExtractionError):
+            extract_bid_items_from_pdf(str(p))
+
+    def test_garbage_image_pdf_fails(self, tmp_path):
+        """PDF with random noise image should fail — no parseable schedule rows."""
+        p = tmp_path / "noise.pdf"
+        doc = fitz.open()
+        page = doc.new_page()
+        from PIL import Image
+        import io
+        import random
+        # Create a noisy image
+        img = Image.new("RGB", (200, 200))
+        pixels = [(random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)) for _ in range(200 * 200)]
+        img.putdata(pixels)
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        page.insert_image(fitz.Rect(0, 0, 200, 200), stream=buf.getvalue())
+        doc.save(str(p))
+        doc.close()
+
+        with pytest.raises(ExtractionError):
+            extract_bid_items_from_pdf(str(p))
+
+
+# ---------------------------------------------------------------------------
+# 14. OCR Summary / Provenance
+# ---------------------------------------------------------------------------
+
+class TestOcrSummary:
+
+    def test_summary_discloses_ocr(self, scanned_pdf_path):
+        """Summary must explicitly state OCR was used."""
+        _, summary = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        assert summary["ocr_used"] is True
+        assert summary["extraction_source"] == "ocr_pdf"
+        assert summary["ocr_pages"] >= 1
+
+    def test_summary_has_required_fields(self, scanned_pdf_path):
+        """Summary must contain all required diagnostic fields."""
+        _, summary = extract_bid_items_from_pdf(str(scanned_pdf_path))
+        for key in [
+            "pages_scanned", "schedule_pages_detected", "native_text_detected",
+            "ocr_used", "ocr_pages", "rows_detected", "rows_extracted",
+            "rows_rejected", "extraction_source", "format_detected", "status",
+        ]:
+            assert key in summary, f"Missing summary key: {key}"
+
+
+# ---------------------------------------------------------------------------
+# 15. OCR Endpoint Tests
+# ---------------------------------------------------------------------------
+
+class TestOcrEndpoint:
+
+    def test_endpoint_ocr_success(self, client, scanned_pdf_path):
+        """POST scanned PDF → 200 with OCR-extracted rows."""
+        with open(scanned_pdf_path, "rb") as f:
+            resp = client.post(
+                "/extract/bid-items/pdf",
+                files={"pdf": ("scanned.pdf", f, "application/pdf")},
+            )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["row_count"] == 15
+        assert data["summary"]["ocr_used"] is True
+        assert data["summary"]["extraction_source"] == "ocr_pdf"
+
+    def test_endpoint_ocr_row_provenance(self, client, scanned_pdf_path):
+        """Every row in endpoint response must have extraction_source='ocr_pdf'."""
+        with open(scanned_pdf_path, "rb") as f:
+            resp = client.post(
+                "/extract/bid-items/pdf",
+                files={"pdf": ("scanned.pdf", f, "application/pdf")},
+            )
+        for row in resp.json()["rows"]:
+            assert row["extraction_source"] == "ocr_pdf"
+
+
+# ---------------------------------------------------------------------------
+# 16. C8A Native-Text Regression (must still pass after C8B)
+# ---------------------------------------------------------------------------
+
+class TestNativeTextRegression:
+    """Ensure C8B changes did not break C8A native-text extraction."""
+
+    def test_synthetic_still_93_rows(self, dot_pdf_path):
+        rows, summary = extract_bid_items_from_pdf(str(dot_pdf_path))
+        assert len(rows) == 93
+        assert summary["ocr_used"] is False
+
+    def test_estprop_still_140_rows(self, estprop_pdf_path):
+        rows, summary = extract_bid_items_from_pdf(str(estprop_pdf_path))
+        assert len(rows) == 140
+        assert summary["ocr_used"] is False
+
+    def test_synthetic_anchors_still_match(self, dot_pdf_path):
+        rows, _ = extract_bid_items_from_pdf(str(dot_pdf_path))
+        by_line = {r["line_number"]: r for r in rows}
+        assert by_line["0520"]["item"] == "2524-6765010"
+        assert by_line["0580"]["item"] == "2524-9325001"
+        assert by_line["0600"]["item"] == "2527-9263217"
+
+    def test_estprop_anchors_still_match(self, estprop_pdf_path):
+        rows, _ = extract_bid_items_from_pdf(str(estprop_pdf_path))
+        by_line = {r["line_number"]: r for r in rows}
+        assert by_line["0520"]["item"] == "2435-0600020"
+        assert by_line["0740"]["item"] == "2524-6765010"
+        assert by_line["0840"]["item"] == "2527-9263217"

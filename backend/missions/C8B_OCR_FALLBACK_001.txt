@@ -1,0 +1,242 @@
+MISSION: C8B_OCR_FALLBACK_001
+
+OBJECTIVE:
+Build a deterministic OCR fallback path for scanned or image-based proposal PDFs that extracts bid schedule rows into the existing structured bid schema and then passes them through the same validation discipline established in C8A.
+
+CONTEXT:
+C8A is complete.
+
+The system now successfully extracts native-text Iowa DOT proposal schedules, including stacked-row schedule layouts, into the canonical structured bid row shape.
+
+However, the user’s real-world operational inputs are often:
+
+* scanned PDFs
+* handwritten bid forms
+* flattened/image-only proposal forms
+* low-quality contractor document exports
+
+Therefore, the system requires an OCR fallback path.
+
+This mission introduces OCR ONLY as an upstream text acquisition layer.
+OCR does NOT replace parsing, validation, mapping, or reconciliation.
+
+CORE PRINCIPLE:
+OCR may produce candidate text.
+The deterministic parser/validator decides whether that text is usable.
+
+SCOPE:
+IN SCOPE:
+
+* Detect when native text is unavailable or insufficient
+* OCR image-based PDF pages
+* Convert OCR output into a parser-consumable intermediate text form
+* Feed OCR text into the existing deterministic row parsing pipeline
+* Preserve fail-closed behavior
+* Return structured extraction results only when validation succeeds
+* Return explicit extraction failure when OCR text is too weak or ambiguous
+
+OUT OF SCOPE:
+
+* Reconciliation logic changes
+* Mapping logic changes
+* UI changes
+* Human review workflow (C8C)
+* Fuzzy item matching
+* Auto-correction of uncertain OCR values
+* Guessing quantities, units, line numbers, or item numbers
+
+NON-NEGOTIABLE RULES:
+
+1. Determinism over convenience
+   OCR output is untrusted until parsed and validated.
+2. Fail-closed always
+   If OCR text is insufficient or ambiguous, extraction must fail explicitly.
+3. No fuzzy matching
+   No approximate item-number repair, no guessed units, no guessed quantities.
+4. Separation of concerns
+   OCR acquisition ≠ parser ≠ validator ≠ reconciliation
+5. Existing C8A parser remains authoritative
+   OCR text must flow into the same canonical structure and rules.
+6. No silent fallback
+   Response must clearly state when extraction came from OCR and whether confidence/quality gates passed.
+7. No truth inflation
+   Do not present OCR-derived rows as valid unless they survive deterministic parsing and validation.
+
+TARGET PIPELINE:
+PDF
+→ native-text attempt
+→ if successful, use C8A path
+→ if native text missing/insufficient, OCR fallback
+→ OCR text normalization
+→ deterministic row parser
+→ validator
+→ normalized output OR explicit failure
+
+OUTPUT CONTRACT (MANDATORY):
+Each extracted row MUST match the existing schema:
+
+{
+"line_number": "0520",
+"item": "2524-6765010",
+"description": "...",
+"qty": 1,
+"unit": "EACH"
+}
+
+OCR-derived successful rows must include extraction provenance, for example:
+
+* extraction_source: "ocr_pdf"
+
+REQUIRED COMPONENTS:
+
+1. OCR DETECTION / ROUTING
+
+* Detect when native text is absent or clearly insufficient
+* Route only those documents/pages to OCR fallback
+* Do NOT degrade native-text C8A path
+
+2. OCR EXTRACTION LAYER
+
+* OCR page images into raw text
+* Keep OCR isolated from parser logic
+* Prefer page-level text output that preserves reading order as much as possible
+* No hand-built heuristics that mutate values to “make it fit”
+
+3. OCR TEXT NORMALIZATION
+
+* Normalize common OCR artifacts only when deterministic and safe
+* Preserve raw OCR output for traceability
+* Examples of acceptable normalization:
+
+  * whitespace cleanup
+  * line break cleanup
+  * standard dash normalization
+* Examples NOT acceptable:
+
+  * guessing missing digits
+  * replacing ambiguous item numbers with “likely” values
+  * inventing missing units
+
+4. PARSER INTEGRATION
+
+* Reuse existing row parser architecture where possible
+* Support OCR-fed line streams without weakening parser discipline
+* Any parser extension must remain deterministic and fail-closed
+
+5. VALIDATION
+
+* Existing validator remains authoritative
+* Reject malformed, incomplete, or ambiguous OCR rows
+* If required fields are missing, fail
+
+6. TRACEABILITY
+
+* Preserve raw OCR text or enough debug evidence to trace:
+  page image → OCR text → parsed row → normalized row
+* No silent transformation chains
+
+7. API / SERVICE INTEGRATION
+
+* Existing extraction endpoint may be extended to support OCR fallback automatically or via explicit mode
+* Response summary must disclose:
+
+  * native text used vs OCR used
+  * pages OCR’d
+  * rows detected
+  * rows rejected
+  * extraction status
+
+QUALITY GATES:
+OCR extraction may only be considered successful if:
+
+* line_number parses deterministically
+* item number parses deterministically
+* description is present
+* quantity parses deterministically
+* unit parses deterministically
+* validator passes
+* anchor rows or known truth rows match exactly when a truth file is provided
+
+FAILURE CONDITIONS:
+STOP and return explicit extraction failure if:
+
+* OCR text is too noisy to isolate row structure
+* line numbers cannot be confidently identified
+* item numbers are ambiguous
+* quantities or units are missing/garbled
+* parser cannot build valid rows
+* validation fails materially
+
+DO NOT:
+
+* silently drop important rows and claim success
+* substitute likely item numbers
+* infer quantities from context
+* infer units from description text unless explicitly present and deterministically parsed
+* bypass the validator because “OCR is messy”
+
+RECOMMENDED IMPLEMENTATION SHAPE:
+
+* Add isolated OCR module/package
+* Add OCR routing inside extraction service
+* Add OCR-aware normalization helper
+* Reuse C8A parser and validator
+* Add tests using one or more scanned/image-only fixtures
+
+VALIDATION REQUIREMENT:
+Use at least one real scanned/image-based proposal form or equivalent OCR-requiring schedule sample.
+
+If known truth is available, validate anchor rows exactly.
+
+If exact truth is not available, validate at minimum:
+
+* row count plausibility
+* sample row correctness by manual inspection
+* fail-closed handling of unreadable rows
+
+SUCCESS CRITERIA:
+
+1. Image-only/scanned PDF can enter OCR fallback path
+2. OCR text is parsed into canonical bid rows without fuzzy matching
+3. Successful rows retain traceability and provenance
+4. Unusable OCR documents fail clearly and honestly
+5. Native-text C8A path still works unchanged
+
+TESTING REQUIREMENTS:
+
+* Add targeted OCR fallback tests
+* Add regression tests proving native-text path still passes
+* Add failure tests for unreadable OCR input
+* Add at least one end-to-end endpoint test for OCR fallback
+
+DECISION RIGHTS:
+If OCR output is ambiguous:
+FAIL.
+Do not guess.
+
+STOP CONDITIONS:
+If OCR cannot provide deterministic row-level extraction without unsafe guessing:
+stop and report that C8C review flow is required.
+
+ARCHITECTURE RULES:
+
+* Preserve the protected pipeline:
+  ingest → normalize → map → reconcile
+* OCR belongs only in ingestion/acquisition
+* Parser/validator remain gatekeepers
+* No changes to reconciliation engine
+
+AUDIT OUTPUT REQUIRED:
+At mission end, report:
+
+* files added
+* files modified
+* OCR engine/library chosen
+* how OCR routing works
+* how raw OCR text is normalized
+* whether native-text path was preserved
+* exact endpoint output from at least one OCR-driven live run
+* known limitations
+
+END STATE:
+The system can honestly attempt OCR extraction for scanned/image-based bid PDFs while preserving deterministic validation and fail-closed behavior.

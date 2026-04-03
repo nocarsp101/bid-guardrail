@@ -1,7 +1,7 @@
 # backend/app/pdf_extraction/extractor.py
 """
 Raw text extraction from native-text PDFs using PyMuPDF.
-No OCR fallback. Fails if no native text is found.
+Provides both strict (C8A) and permissive extraction modes.
 """
 from __future__ import annotations
 
@@ -30,6 +30,30 @@ def extract_pages_text(pdf_path: str) -> List[Dict[str, Any]]:
         - PDF has zero pages
         - No native text detected on any page
     """
+    pages = _open_and_extract(pdf_path)
+    total_chars = sum(p["char_count"] for p in pages)
+
+    if total_chars == 0:
+        raise ExtractionError(
+            "No native text detected in PDF. OCR may be required.",
+            meta={"pdf_path": pdf_path, "page_count": len(pages)},
+        )
+
+    return pages
+
+
+def extract_pages_text_permissive(pdf_path: str) -> List[Dict[str, Any]]:
+    """
+    Extract raw text, returning pages even if text is empty.
+    Used by the service layer to decide whether OCR fallback is needed.
+
+    Raises ExtractionError only if PDF cannot be opened or has zero pages.
+    """
+    return _open_and_extract(pdf_path)
+
+
+def _open_and_extract(pdf_path: str) -> List[Dict[str, Any]]:
+    """Shared extraction logic."""
     try:
         doc = fitz.open(pdf_path)
     except Exception as e:
@@ -46,13 +70,11 @@ def extract_pages_text(pdf_path: str) -> List[Dict[str, Any]]:
         )
 
     pages: List[Dict[str, Any]] = []
-    total_chars = 0
 
     for i in range(doc.page_count):
         page = doc.load_page(i)
         text = page.get_text("text") or ""
         char_count = len(text.strip())
-        total_chars += char_count
         pages.append({
             "page_index": i,
             "text": text,
@@ -60,11 +82,4 @@ def extract_pages_text(pdf_path: str) -> List[Dict[str, Any]]:
         })
 
     doc.close()
-
-    if total_chars == 0:
-        raise ExtractionError(
-            "No native text detected in PDF. OCR may be required (out of scope for C8A).",
-            meta={"pdf_path": pdf_path, "page_count": len(pages)},
-        )
-
     return pages

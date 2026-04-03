@@ -19,8 +19,12 @@ from .extractor import ExtractionError
 # We require at least 3 of these to appear on the same page to consider it a schedule page.
 _SCHEDULE_HEADER_TOKENS = {"LINE", "ITEM", "DESCRIPTION", "UNIT", "QUANTITY"}
 
-# DOT schedule rows start with a 4-digit line number followed by a DOT item number.
+# DOT schedule rows: single-line format (NNNN NNNN-NNNNNNN ...)
 _DOT_ROW_PREFIX_RE = re.compile(r'^\s*\d{4}\s+\d{4}-\d{7}\b')
+
+# Stacked format patterns: standalone line number and item number
+_STACKED_LINE_NUM_RE = re.compile(r'^\d{4}$')
+_STACKED_ITEM_NUM_RE = re.compile(r'^\d{4}-\d{7}$')
 
 
 def detect_schedule_pages(
@@ -31,7 +35,8 @@ def detect_schedule_pages(
 
     Detection criteria (deterministic):
     1. Page contains a column header matching >= 3 of the known schedule header tokens, OR
-    2. Page contains >= 2 lines matching the DOT row prefix pattern (NNNN NNNN-NNNNNNN)
+    2. Page contains >= 2 lines matching the DOT row prefix pattern (NNNN NNNN-NNNNNNN), OR
+    3. Page contains >= 2 stacked row starts (standalone 4-digit line followed by DOT item)
 
     Raises ExtractionError if no schedule pages detected.
     """
@@ -41,7 +46,9 @@ def detect_schedule_pages(
         idx = page_info["page_index"]
         text = page_info["text"]
 
-        if _page_has_schedule_header(text) or _page_has_dot_rows(text):
+        if (_page_has_schedule_header(text)
+                or _page_has_dot_rows(text)
+                or _page_has_stacked_rows(text)):
             schedule_pages.append(idx)
 
     if not schedule_pages:
@@ -66,6 +73,19 @@ def _page_has_dot_rows(text: str) -> bool:
     count = 0
     for line in text.splitlines():
         if _DOT_ROW_PREFIX_RE.match(line):
+            count += 1
+            if count >= 2:
+                return True
+    return False
+
+
+def _page_has_stacked_rows(text: str) -> bool:
+    """Check if page has >= 2 stacked DOT row starts (line_num then item_num)."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    count = 0
+    for i in range(len(lines) - 1):
+        if (_STACKED_LINE_NUM_RE.fullmatch(lines[i])
+                and _STACKED_ITEM_NUM_RE.fullmatch(lines[i + 1])):
             count += 1
             if count >= 2:
                 return True
