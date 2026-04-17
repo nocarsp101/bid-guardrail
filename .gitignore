@@ -1,8 +1,11 @@
-_data/runs/
-_data/audit/*.jsonl
-*.pdf
-*.xlsx
-*.csv
-node_modules/
+.venv/
+frontend/dist/
 __pycache__/
-.env
+*.pyc
+
+# Node
+node_modules/
+
+# OS / misc
+.DS_Store
+Thumbs.db

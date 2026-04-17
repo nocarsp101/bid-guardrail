@@ -25,7 +25,131 @@ from app.operator_report import build_operator_report
 from app.export_report import render_html, render_csv
 
 from app.pdf_extraction.service import extract_bid_items_from_pdf, extract_quote_from_pdf, extract_pdf_auto
+from app.pdf_extraction.quote_normalization import normalize_quote_from_pdf
+from app.pdf_extraction.quote_to_bid_mapping import map_quote_to_bid
+from app.pdf_extraction.pairing_guardrails import analyze_pairing
+from app.pdf_extraction.review_packet import build_review_packet
+from app.pdf_extraction.reconciliation_foundation import reconcile_packet
+from app.pdf_extraction.reconciliation_contract import build_reconciliation_contract
+from app.pdf_extraction.discrepancy_classification import classify_contract
+from app.pdf_extraction.findings_packet import build_findings_packet
+from app.pdf_extraction.review_prioritization import (
+    prioritize_findings_packet,
+    prioritize_classified_contract,
+)
+from app.pdf_extraction.findings_exports import (
+    export_findings_json,
+    export_findings_csv,
+    export_findings_report,
+)
+from app.pdf_extraction.office_workflow import build_workflow_packet
 from app.pdf_extraction.extractor import ExtractionError
+
+# C80+ canonical artifact and orchestration services.
+from app.pdf_extraction.artifact_repository import (
+    get_default_repository, reset_default_repository,
+)
+from app.pdf_extraction.control_room_assembly import (
+    assemble_quote_case_payload, assemble_package_overview_payload,
+    assemble_authority_action_payload, assemble_bid_readiness_payload,
+    assemble_timeline_payload,
+)
+from app.pdf_extraction.export_orchestration import (
+    generate_sub_clarification_export, generate_estimator_review_export,
+    generate_authority_action_export, generate_bid_readiness_export,
+    generate_final_carry_export,
+)
+from app.pdf_extraction.canonical_api_contracts import (
+    list_supported_artifact_types, get_schema_descriptor,
+)
+from app.pdf_extraction.e2e_demo_harness import run_e2e_demo, build_demo_fixture
+from app.pdf_extraction.seed_scenarios import list_scenarios, run_scenario_e2e
+
+# C86-C91 application hardening.
+from app.pdf_extraction.scope_guardrails import check_scope, filter_records_by_scope
+from app.pdf_extraction.api_error_contracts import (
+    build_error, to_http_response, list_error_codes,
+    ERR_INVALID_ARTIFACT_TYPE, ERR_RECORD_NOT_FOUND, ERR_UNKNOWN_SCENARIO,
+    ERR_SCOPE_MISMATCH, ERR_MISSING_REVISION, ERR_MALFORMED_PAYLOAD,
+)
+from app.pdf_extraction.revision_diff import (
+    diff_revisions, diff_lineage, diff_summary,
+)
+from app.pdf_extraction.ui_integration_pack import (
+    get_ui_integration_pack, get_screen, get_export_action,
+    list_screen_ids, list_export_ids,
+)
+from app.pdf_extraction.production_smoke_harness import run_smoke
+
+# C92-C97 operational-readiness layers.
+from app.pdf_extraction.authorization import (
+    authorize, authorization_summary, list_roles, list_actions,
+)
+from app.pdf_extraction.idempotency import (
+    get_default_idempotency_store, reset_default_idempotency_store,
+    idempotent_save_artifact,
+)
+from app.pdf_extraction.backup_restore import (
+    create_snapshot, validate_snapshot, restore_snapshot,
+)
+from app.pdf_extraction.render_reports import (
+    build_estimator_review_report, build_authority_action_report,
+    build_bid_readiness_report, build_final_carry_report,
+    list_report_kinds,
+)
+from app.pdf_extraction.admin_diagnostics import collect_diagnostics
+from app.pdf_extraction.acceptance_harness import run_acceptance
+
+# C98-C103 product-facing layers.
+from app.pdf_extraction.frontend_reference_integration import (
+    ControlRoomReferenceClient, build_integration_manifest,
+)
+from app.pdf_extraction.production_storage_contract import (
+    ProductionStorageContract, mirror_repository,
+)
+from app.pdf_extraction.report_delivery import (
+    deliver_report, deliver_all_for_bid, list_formats,
+)
+from app.pdf_extraction.operator_workflow_actions import (
+    apply_action as apply_operator_action,
+    list_actions as list_operator_actions,
+    list_clarification_states, list_carry_states,
+)
+from app.pdf_extraction.admin_safety_controls import (
+    evaluate_safety, guarded_reset_repository, guarded_restore_snapshot,
+    guarded_wipe_idempotency, safety_summary,
+)
+from app.pdf_extraction.product_demo_flow import run_product_demo
+
+# C104-C109 UI/deployment-readiness layers.
+from app.pdf_extraction.frontend_screen_adapters import (
+    adapt_quote_case, adapt_package_overview, adapt_authority_action,
+    adapt_bid_readiness, adapt_timeline, adapt_revision_inspection,
+    list_screens as list_ui_screens,
+)
+from app.pdf_extraction.report_download_flow import (
+    build_downloadable, build_downloadable_bundle,
+    list_report_kinds as list_download_report_kinds,
+)
+from app.pdf_extraction.operator_command_flow import (
+    execute_command as execute_operator_command,
+    get_default_receipt_log, reset_default_receipt_log,
+    list_commands as list_operator_commands,
+)
+from app.pdf_extraction.runtime_config import (
+    default_config, load_config_from_env, validate_config, summarize_config,
+)
+from app.pdf_extraction.bootstrap_harness import bootstrap, health_check
+from app.pdf_extraction.ui_demo_harness import run_ui_demo
+
+# C120-C121 runtime packaging + acceptance walkthrough
+from app.pdf_extraction.runtime_packaging import (
+    runtime_profile, build_runtime_config, build_frontend_handoff,
+    package_runtime, startup_verification,
+)
+from app.pdf_extraction.e2e_acceptance_walkthrough import (
+    run_walkthrough, list_walkthrough_scenarios,
+)
 
 
 APP_NAME = "Bid Guardrail MVP (Week-2)"
@@ -79,12 +203,16 @@ async def extract_bid_items_pdf(
     try:
         rows, summary = extract_bid_items_from_pdf(tmp_path)
     except ExtractionError as e:
+        meta = e.meta or {}
         return JSONResponse(
             status_code=422,
             content={
                 "status": "extraction_failed",
+                "failure_reason": meta.get("failure_reason"),
+                "document_class_detected": meta.get("document_class_detected", "dot_schedule"),
+                "extraction_source": meta.get("extraction_source"),
                 "error": str(e),
-                "meta": e.meta,
+                "meta": meta,
             },
         )
     finally:
@@ -93,6 +221,9 @@ async def extract_bid_items_pdf(
 
     return {
         "status": "success",
+        "document_class_detected": summary.get("document_class_detected"),
+        "extraction_source": summary.get("extraction_source"),
+        "failure_reason": None,
         "rows": rows,
         "row_count": len(rows),
         "summary": summary,
@@ -122,12 +253,16 @@ async def extract_quote_pdf(
     try:
         rows, summary = extract_quote_from_pdf(tmp_path)
     except ExtractionError as e:
+        meta = e.meta or {}
         return JSONResponse(
             status_code=422,
             content={
                 "status": "extraction_failed",
+                "failure_reason": meta.get("failure_reason"),
+                "document_class_detected": meta.get("document_class_detected", "quote"),
+                "extraction_source": meta.get("extraction_source"),
                 "error": str(e),
-                "meta": e.meta,
+                "meta": meta,
             },
         )
     finally:
@@ -136,10 +271,804 @@ async def extract_quote_pdf(
 
     return {
         "status": "success",
+        "document_class_detected": summary.get("document_class_detected"),
+        "extraction_source": summary.get("extraction_source"),
+        "failure_reason": None,
         "rows": rows,
         "row_count": len(rows),
         "summary": summary,
     }
+
+
+@app.post("/extract/quote/staging")
+async def extract_quote_staging(
+    pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+):
+    """
+    C10 governed quote normalization staging.
+
+    Returns the three-bucket staging object:
+        - accepted_rows: deterministic rows that passed parse + validate
+        - rejected_candidates: row-like evidence rejected with reasons
+        - document_diagnostics: classification and extraction metadata
+
+    DOT schedules never flow through this endpoint. Unknown documents
+    return a staged failure object with zero accepted_rows and preserved
+    diagnostics. Quote documents return accepted_rows when at least one
+    row survives; otherwise they return a staged failure with explicit
+    failure_reason and preserved rejected_candidates.
+    """
+    import tempfile
+
+    if not pdf.filename or not pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
+
+    content = await pdf.read()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        try:
+            staging = normalize_quote_from_pdf(tmp_path)
+        except ExtractionError as e:
+            meta = e.meta or {}
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "failure_reason": meta.get("failure_reason"),
+                    "document_class_detected": meta.get("document_class_detected"),
+                    "extraction_source": meta.get("extraction_source"),
+                    "error": str(e),
+                    "meta": meta,
+                },
+            )
+    finally:
+        import os
+        os.unlink(tmp_path)
+
+    diagnostics = staging.get("document_diagnostics", {})
+    staging_status = diagnostics.get("status", "success")
+
+    # success when we have ≥1 accepted row; staged-failure otherwise.
+    if staging_status == "success":
+        return staging
+
+    return JSONResponse(status_code=422, content=staging)
+
+
+@app.post("/extract/quote/mapping")
+async def extract_quote_mapping(
+    quote_pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+    dot_pdf: UploadFile = File(..., description="DOT proposal schedule PDF"),
+):
+    """
+    C13 controlled mapping foundation.
+
+    Runs the two governed lanes independently:
+        - DOT lane (C8) extracts bid items from dot_pdf
+        - Quote staging (C12) normalizes accepted quote rows from quote_pdf
+
+    Then runs the deterministic mapping rules from
+    quote_to_bid_mapping.map_quote_to_bid. NEVER guesses. Ambiguous and
+    unmapped outcomes are explicit and traceable.
+
+    Returns:
+        {
+            document_class_detected,
+            mapping_status,
+            accepted_rows,           -- from C12 staging (audit copy)
+            mapping_results,         -- per-row outcomes
+            mapping_diagnostics,
+            quote_diagnostics,       -- C10 diagnostics from staging
+            bid_summary,             -- C8 summary
+        }
+    """
+    import tempfile
+
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as qtmp:
+        qtmp.write(quote_bytes)
+        quote_path = qtmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as dtmp:
+        dtmp.write(dot_bytes)
+        dot_path = dtmp.name
+
+    try:
+        # DOT lane (locked C8 path).
+        try:
+            bid_rows, bid_summary = extract_bid_items_from_pdf(dot_path)
+        except ExtractionError as e:
+            meta = e.meta or {}
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "dot_extraction",
+                    "failure_reason": meta.get("failure_reason"),
+                    "error": str(e),
+                    "meta": meta,
+                },
+            )
+
+        # Quote staging (governed C12 path).
+        try:
+            staging = normalize_quote_from_pdf(quote_path)
+        except ExtractionError as e:
+            meta = e.meta or {}
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": meta.get("failure_reason"),
+                    "document_class_detected": meta.get("document_class_detected"),
+                    "error": str(e),
+                    "meta": meta,
+                },
+            )
+
+        # C14: if the quote_pdf wasn't classified as a quote, stop here
+        # with the real stage label. Otherwise downstream consumers would
+        # see a generic pairing rejection and miss the root cause.
+        if staging.get("document_class_detected") != "quote":
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (staging.get("document_diagnostics") or {}).get("failure_reason"),
+                    "document_class_detected": staging.get("document_class_detected"),
+                    "quote_diagnostics": staging.get("document_diagnostics"),
+                },
+            )
+
+        accepted_rows = staging.get("accepted_rows", [])
+
+        # C14: pairing guardrail runs BEFORE mapping.
+        pairing = analyze_pairing(accepted_rows, bid_rows)
+
+        bid_summary_public = {
+            "rows_extracted": bid_summary.get("rows_extracted"),
+            "format_detected": bid_summary.get("format_detected"),
+            "document_class": bid_summary.get("document_class"),
+            "extraction_source": bid_summary.get("extraction_source"),
+        }
+
+        if not pairing["allow_mapping"]:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "pairing_rejected",
+                    "stage": "pairing_guardrail",
+                    "document_class_detected": staging.get("document_class_detected"),
+                    "pairing_diagnostics": pairing,
+                    "mapping_status": "blocked_by_pairing",
+                    "mapping_results": [],
+                    "mapping_diagnostics": {
+                        "mapped_count": 0,
+                        "unmapped_count": 0,
+                        "ambiguous_count": 0,
+                        "rows_input": len(accepted_rows),
+                        "bid_items_indexed": len(bid_rows),
+                    },
+                    "accepted_rows": accepted_rows,
+                    "quote_diagnostics": staging.get("document_diagnostics"),
+                    "bid_summary": bid_summary_public,
+                },
+            )
+
+        mapping = map_quote_to_bid(accepted_rows, bid_rows)
+
+        return {
+            "document_class_detected": staging.get("document_class_detected"),
+            "pairing_diagnostics": pairing,
+            "mapping_status": mapping["mapping_status"],
+            "accepted_rows": accepted_rows,
+            "mapping_results": mapping["mapping_results"],
+            "mapping_diagnostics": mapping["mapping_diagnostics"],
+            "quote_diagnostics": staging.get("document_diagnostics"),
+            "bid_summary": bid_summary_public,
+        }
+    finally:
+        import os
+        for p in (quote_path, dot_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+@app.post("/extract/quote/review")
+async def extract_quote_review(
+    quote_pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+    dot_pdf: UploadFile = File(..., description="DOT proposal schedule PDF"),
+):
+    """
+    C15 governed review packet.
+
+    Runs:
+        1. DOT lane (C8) extraction
+        2. Quote staging (C12) normalization
+        3. Pairing guardrail (C14) analysis
+        4. Mapping foundation (C13) IF pairing allows
+        5. Review packet (C15) assembly
+
+    Returns the packet regardless of outcome. Blocked pairs receive a
+    blocked packet with every accepted quote row stubbed and flagged
+    blocked_by_pairing — no mapping outcomes. Trusted/weak pairs receive
+    a ready/partial packet with full per-row review entries.
+
+    HTTP status:
+        200 when packet is ready or partial
+        422 when packet is blocked (pairing rejected) — packet body still
+            returned so reviewers can inspect diagnostics and row stubs
+    """
+    import tempfile
+
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as qtmp:
+        qtmp.write(quote_bytes)
+        quote_path = qtmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as dtmp:
+        dtmp.write(dot_bytes)
+        dot_path = dtmp.name
+
+    try:
+        try:
+            bid_rows, bid_summary = extract_bid_items_from_pdf(dot_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "dot_extraction",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        try:
+            staging = normalize_quote_from_pdf(quote_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        if staging.get("document_class_detected") != "quote":
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (staging.get("document_diagnostics") or {}).get("failure_reason"),
+                    "document_class_detected": staging.get("document_class_detected"),
+                    "quote_diagnostics": staging.get("document_diagnostics"),
+                },
+            )
+
+        accepted_rows = staging.get("accepted_rows", [])
+        pairing = analyze_pairing(accepted_rows, bid_rows)
+
+        bid_summary_public = {
+            "rows_extracted": bid_summary.get("rows_extracted"),
+            "format_detected": bid_summary.get("format_detected"),
+            "document_class": bid_summary.get("document_class"),
+            "extraction_source": bid_summary.get("extraction_source"),
+        }
+
+        if not pairing["allow_mapping"]:
+            packet = build_review_packet(
+                pairing_diagnostics=pairing,
+                mapping_result=None,
+                accepted_rows=accepted_rows,
+                quote_diagnostics=staging.get("document_diagnostics") or {},
+                bid_summary=bid_summary_public,
+            )
+            return JSONResponse(status_code=422, content=packet)
+
+        mapping = map_quote_to_bid(accepted_rows, bid_rows)
+        packet = build_review_packet(
+            pairing_diagnostics=pairing,
+            mapping_result=mapping,
+            accepted_rows=accepted_rows,
+            quote_diagnostics=staging.get("document_diagnostics") or {},
+            bid_summary=bid_summary_public,
+        )
+        return packet
+    finally:
+        import os
+        for p in (quote_path, dot_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+@app.post("/extract/quote/reconcile")
+async def extract_quote_reconcile(
+    quote_pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+    dot_pdf: UploadFile = File(..., description="DOT proposal schedule PDF"),
+):
+    """
+    C16 deterministic reconciliation foundation.
+
+    Chain: DOT → staging → pairing → mapping (if allowed) → review packet
+    → reconciliation. Reconciliation compares only mapped rows and only
+    fields that explicitly exist on both sides (unit, qty). Never
+    infers, never resolves conflicts.
+
+    HTTP status:
+        200 when reconciliation is ready or partial
+        422 when reconciliation is blocked (pairing rejected) — result
+            body is still returned so reviewers see full diagnostics
+    """
+    import tempfile
+
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as qtmp:
+        qtmp.write(quote_bytes)
+        quote_path = qtmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as dtmp:
+        dtmp.write(dot_bytes)
+        dot_path = dtmp.name
+
+    try:
+        try:
+            bid_rows, bid_summary = extract_bid_items_from_pdf(dot_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "dot_extraction",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        try:
+            staging = normalize_quote_from_pdf(quote_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        if staging.get("document_class_detected") != "quote":
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (staging.get("document_diagnostics") or {}).get("failure_reason"),
+                    "document_class_detected": staging.get("document_class_detected"),
+                    "quote_diagnostics": staging.get("document_diagnostics"),
+                },
+            )
+
+        accepted_rows = staging.get("accepted_rows", [])
+        pairing = analyze_pairing(accepted_rows, bid_rows)
+        bid_summary_public = {
+            "rows_extracted": bid_summary.get("rows_extracted"),
+            "format_detected": bid_summary.get("format_detected"),
+            "document_class": bid_summary.get("document_class"),
+            "extraction_source": bid_summary.get("extraction_source"),
+        }
+
+        if not pairing["allow_mapping"]:
+            packet = build_review_packet(
+                pairing_diagnostics=pairing,
+                mapping_result=None,
+                accepted_rows=accepted_rows,
+                quote_diagnostics=staging.get("document_diagnostics") or {},
+                bid_summary=bid_summary_public,
+            )
+            recon = reconcile_packet(packet)
+            contract = build_reconciliation_contract(recon, packet)
+            classified = classify_contract(contract)
+            prioritized = prioritize_classified_contract(classified)
+            return JSONResponse(status_code=422, content=prioritized)
+
+        mapping = map_quote_to_bid(accepted_rows, bid_rows)
+        packet = build_review_packet(
+            pairing_diagnostics=pairing,
+            mapping_result=mapping,
+            accepted_rows=accepted_rows,
+            quote_diagnostics=staging.get("document_diagnostics") or {},
+            bid_summary=bid_summary_public,
+        )
+        recon = reconcile_packet(packet)
+        contract = build_reconciliation_contract(recon, packet)
+        classified = classify_contract(contract)
+        prioritized = prioritize_classified_contract(classified)
+        return prioritized
+    finally:
+        import os
+        for p in (quote_path, dot_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+def _build_prioritized_findings_from_pdfs(quote_path: str, dot_path: str):
+    """
+    Shared helper: run the full governed pipeline
+    (DOT extract → quote staging → pairing → mapping → review packet →
+    reconciliation contract → classification → findings packet →
+    prioritization) for two uploaded PDF paths.
+
+    Returns a tuple (http_status, payload). payload is either the
+    prioritized findings packet or an extraction_failed error dict.
+    """
+    try:
+        bid_rows, bid_summary = extract_bid_items_from_pdf(dot_path)
+    except ExtractionError as e:
+        return 422, {
+            "status": "extraction_failed",
+            "stage": "dot_extraction",
+            "failure_reason": (e.meta or {}).get("failure_reason"),
+            "error": str(e),
+        }
+
+    try:
+        staging = normalize_quote_from_pdf(quote_path)
+    except ExtractionError as e:
+        return 422, {
+            "status": "extraction_failed",
+            "stage": "quote_normalization",
+            "failure_reason": (e.meta or {}).get("failure_reason"),
+            "error": str(e),
+        }
+
+    if staging.get("document_class_detected") != "quote":
+        return 422, {
+            "status": "extraction_failed",
+            "stage": "quote_normalization",
+            "failure_reason": (staging.get("document_diagnostics") or {}).get("failure_reason"),
+            "document_class_detected": staging.get("document_class_detected"),
+            "quote_diagnostics": staging.get("document_diagnostics"),
+        }
+
+    accepted_rows = staging.get("accepted_rows", [])
+    pairing = analyze_pairing(accepted_rows, bid_rows)
+    bid_summary_public = {
+        "rows_extracted": bid_summary.get("rows_extracted"),
+        "format_detected": bid_summary.get("format_detected"),
+        "document_class": bid_summary.get("document_class"),
+        "extraction_source": bid_summary.get("extraction_source"),
+    }
+
+    if not pairing["allow_mapping"]:
+        packet = build_review_packet(
+            pairing_diagnostics=pairing,
+            mapping_result=None,
+            accepted_rows=accepted_rows,
+            quote_diagnostics=staging.get("document_diagnostics") or {},
+            bid_summary=bid_summary_public,
+        )
+        recon = reconcile_packet(packet)
+        contract = build_reconciliation_contract(recon, packet)
+        classified = classify_contract(contract)
+        findings = build_findings_packet(packet, classified)
+        findings = prioritize_findings_packet(findings)
+        return 422, findings
+
+    mapping = map_quote_to_bid(accepted_rows, bid_rows)
+    packet = build_review_packet(
+        pairing_diagnostics=pairing,
+        mapping_result=mapping,
+        accepted_rows=accepted_rows,
+        quote_diagnostics=staging.get("document_diagnostics") or {},
+        bid_summary=bid_summary_public,
+    )
+    recon = reconcile_packet(packet)
+    contract = build_reconciliation_contract(recon, packet)
+    classified = classify_contract(contract)
+    findings = build_findings_packet(packet, classified)
+    findings = prioritize_findings_packet(findings)
+    return 200, findings
+
+
+def _save_two_pdfs(quote_bytes: bytes, dot_bytes: bytes):
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as qtmp:
+        qtmp.write(quote_bytes)
+        quote_path = qtmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as dtmp:
+        dtmp.write(dot_bytes)
+        dot_path = dtmp.name
+    return quote_path, dot_path
+
+
+def _unlink_quiet(*paths: str) -> None:
+    import os
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
+@app.post("/extract/quote/findings")
+async def extract_quote_findings(
+    quote_pdf: UploadFile = File(..., description="Subcontractor/vendor quote PDF"),
+    dot_pdf: UploadFile = File(..., description="DOT proposal schedule PDF"),
+):
+    """
+    C19 governed findings packet foundation.
+
+    Assembles the full governed chain (DOT → staging → pairing → mapping →
+    review packet → reconciliation contract → discrepancy classification)
+    into a deterministic findings packet artifact suitable for office
+    review. The packet is not narrative — it is a structured, auditable
+    artifact.
+
+    HTTP status:
+        200 when packet is ready or partial
+        422 when packet is blocked (pairing rejected) — the blocked
+            packet is still returned in full
+    """
+    import tempfile
+
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as qtmp:
+        qtmp.write(quote_bytes)
+        quote_path = qtmp.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as dtmp:
+        dtmp.write(dot_bytes)
+        dot_path = dtmp.name
+
+    try:
+        try:
+            bid_rows, bid_summary = extract_bid_items_from_pdf(dot_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "dot_extraction",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        try:
+            staging = normalize_quote_from_pdf(quote_path)
+        except ExtractionError as e:
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (e.meta or {}).get("failure_reason"),
+                    "error": str(e),
+                },
+            )
+
+        if staging.get("document_class_detected") != "quote":
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "status": "extraction_failed",
+                    "stage": "quote_normalization",
+                    "failure_reason": (staging.get("document_diagnostics") or {}).get("failure_reason"),
+                    "document_class_detected": staging.get("document_class_detected"),
+                    "quote_diagnostics": staging.get("document_diagnostics"),
+                },
+            )
+
+        accepted_rows = staging.get("accepted_rows", [])
+        pairing = analyze_pairing(accepted_rows, bid_rows)
+        bid_summary_public = {
+            "rows_extracted": bid_summary.get("rows_extracted"),
+            "format_detected": bid_summary.get("format_detected"),
+            "document_class": bid_summary.get("document_class"),
+            "extraction_source": bid_summary.get("extraction_source"),
+        }
+
+        if not pairing["allow_mapping"]:
+            packet = build_review_packet(
+                pairing_diagnostics=pairing,
+                mapping_result=None,
+                accepted_rows=accepted_rows,
+                quote_diagnostics=staging.get("document_diagnostics") or {},
+                bid_summary=bid_summary_public,
+            )
+            recon = reconcile_packet(packet)
+            contract = build_reconciliation_contract(recon, packet)
+            classified = classify_contract(contract)
+            findings = build_findings_packet(packet, classified)
+            findings = prioritize_findings_packet(findings)
+            return JSONResponse(status_code=422, content=findings)
+
+        mapping = map_quote_to_bid(accepted_rows, bid_rows)
+        packet = build_review_packet(
+            pairing_diagnostics=pairing,
+            mapping_result=mapping,
+            accepted_rows=accepted_rows,
+            quote_diagnostics=staging.get("document_diagnostics") or {},
+            bid_summary=bid_summary_public,
+        )
+        recon = reconcile_packet(packet)
+        contract = build_reconciliation_contract(recon, packet)
+        classified = classify_contract(contract)
+        findings = build_findings_packet(packet, classified)
+        findings = prioritize_findings_packet(findings)
+        return findings
+    finally:
+        import os
+        for p in (quote_path, dot_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
+@app.post("/extract/quote/findings/export/json")
+async def extract_quote_findings_export_json(
+    quote_pdf: UploadFile = File(...),
+    dot_pdf: UploadFile = File(...),
+):
+    """C22 stable JSON export of the governed findings packet."""
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+    quote_path, dot_path = _save_two_pdfs(quote_bytes, dot_bytes)
+    try:
+        status, payload = _build_prioritized_findings_from_pdfs(quote_path, dot_path)
+        if isinstance(payload, dict) and payload.get("status") == "extraction_failed":
+            return JSONResponse(status_code=status, content=payload)
+        export = export_findings_json(payload)
+        return JSONResponse(status_code=status, content=export)
+    finally:
+        _unlink_quiet(quote_path, dot_path)
+
+
+@app.post("/extract/quote/findings/export/csv")
+async def extract_quote_findings_export_csv(
+    quote_pdf: UploadFile = File(...),
+    dot_pdf: UploadFile = File(...),
+):
+    """C22 office-friendly tabular CSV export."""
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+    quote_path, dot_path = _save_two_pdfs(quote_bytes, dot_bytes)
+    try:
+        status, payload = _build_prioritized_findings_from_pdfs(quote_path, dot_path)
+        if isinstance(payload, dict) and payload.get("status") == "extraction_failed":
+            return JSONResponse(status_code=status, content=payload)
+        csv_text = export_findings_csv(payload)
+        return Response(
+            content=csv_text,
+            status_code=status,
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": 'attachment; filename="findings.csv"',
+                "X-Packet-Status": payload.get("packet_status") or "unknown",
+            },
+        )
+    finally:
+        _unlink_quiet(quote_path, dot_path)
+
+
+@app.post("/extract/quote/findings/export/report")
+async def extract_quote_findings_export_report(
+    quote_pdf: UploadFile = File(...),
+    dot_pdf: UploadFile = File(...),
+):
+    """C22 engineer-ready structured report payload. PDF rendering is
+    deferred — the payload is a stable section-oriented dict a downstream
+    renderer can walk."""
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+    quote_path, dot_path = _save_two_pdfs(quote_bytes, dot_bytes)
+    try:
+        status, payload = _build_prioritized_findings_from_pdfs(quote_path, dot_path)
+        if isinstance(payload, dict) and payload.get("status") == "extraction_failed":
+            return JSONResponse(status_code=status, content=payload)
+        report = export_findings_report(payload)
+        return JSONResponse(status_code=status, content=report)
+    finally:
+        _unlink_quiet(quote_path, dot_path)
+
+
+@app.post("/extract/quote/findings/workflow")
+async def extract_quote_findings_workflow(
+    quote_pdf: UploadFile = File(...),
+    dot_pdf: UploadFile = File(...),
+    review_metadata: Optional[str] = Form(None, description="Optional JSON blob of append-only reviewer metadata"),
+):
+    """
+    C25 office workflow packet endpoint.
+
+    Wraps a governed findings packet in a deterministic review queue
+    artifact. Append-only reviewer metadata may be supplied as a JSON
+    blob; it never mutates governed findings truth.
+    """
+    if not quote_pdf.filename or not quote_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="quote_pdf must be a PDF.")
+    if not dot_pdf.filename or not dot_pdf.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="dot_pdf must be a PDF.")
+
+    parsed_metadata: Optional[Dict[str, Any]] = None
+    if review_metadata:
+        try:
+            parsed_metadata = json.loads(review_metadata)
+        except json.JSONDecodeError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"review_metadata must be valid JSON: {e}",
+            )
+        if not isinstance(parsed_metadata, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="review_metadata must decode to a JSON object.",
+            )
+
+    quote_bytes = await quote_pdf.read()
+    dot_bytes = await dot_pdf.read()
+    quote_path, dot_path = _save_two_pdfs(quote_bytes, dot_bytes)
+    try:
+        status, payload = _build_prioritized_findings_from_pdfs(quote_path, dot_path)
+        if isinstance(payload, dict) and payload.get("status") == "extraction_failed":
+            return JSONResponse(status_code=status, content=payload)
+        workflow = build_workflow_packet(payload, parsed_metadata)
+        return JSONResponse(status_code=status, content=workflow)
+    finally:
+        _unlink_quiet(quote_path, dot_path)
 
 
 @app.post("/extract/auto")
@@ -164,12 +1093,16 @@ async def extract_auto(
     try:
         rows, summary = extract_pdf_auto(tmp_path)
     except ExtractionError as e:
+        meta = e.meta or {}
         return JSONResponse(
             status_code=422,
             content={
                 "status": "extraction_failed",
+                "failure_reason": meta.get("failure_reason"),
+                "document_class_detected": meta.get("document_class_detected", "unknown"),
+                "extraction_source": meta.get("extraction_source"),
                 "error": str(e),
-                "meta": e.meta,
+                "meta": meta,
             },
         )
     finally:
@@ -178,6 +1111,9 @@ async def extract_auto(
 
     return {
         "status": "success",
+        "document_class_detected": summary.get("document_class_detected"),
+        "extraction_source": summary.get("extraction_source"),
+        "failure_reason": None,
         "rows": rows,
         "row_count": len(rows),
         "summary": summary,
@@ -742,3 +1678,744 @@ def compute_overall_status(findings: List[Finding]) -> str:
     if any(f.severity == "WARN" for f in findings):
         return "WARN"
     return "PASS"
+
+
+# ---------------------------------------------------------------------------
+# C83 — API endpoint surface for canonical artifacts, orchestration, exports,
+# timeline, and demo harness.
+# ---------------------------------------------------------------------------
+
+def _repo():
+    return get_default_repository()
+
+
+@app.get("/canonical/schema-types")
+def canonical_schema_types():
+    return {
+        "supported_types": list_supported_artifact_types(),
+        "descriptors": [get_schema_descriptor(t) for t in list_supported_artifact_types()],
+    }
+
+
+@app.post("/canonical/artifacts/{artifact_type}")
+async def save_canonical_artifact(artifact_type: str, request: Dict[str, Any]):
+    """Save a canonical artifact. Body: {"artifact": {...}, "metadata": {...}}."""
+    artifact = (request or {}).get("artifact") or {}
+    metadata = (request or {}).get("metadata") or {}
+    rec = _repo().save(artifact_type, artifact, metadata)
+    return rec
+
+
+@app.get("/canonical/artifacts/{artifact_type}/latest")
+def get_latest_artifact(artifact_type: str, bid_id: Optional[str] = None,
+                        job_id: Optional[str] = None):
+    rec = _repo().latest(artifact_type, bid_id=bid_id, job_id=job_id)
+    if rec is None:
+        return JSONResponse(status_code=404, content={"error": "not_found",
+                                                      "artifact_type": artifact_type})
+    return rec
+
+
+@app.get("/canonical/artifacts/{artifact_type}/history")
+def get_artifact_history(artifact_type: str, bid_id: Optional[str] = None,
+                         job_id: Optional[str] = None):
+    return {"records": _repo().history(artifact_type, bid_id=bid_id, job_id=job_id)}
+
+
+@app.get("/canonical/artifacts/by-bid/{bid_id}")
+def get_artifacts_by_bid(bid_id: str):
+    return {"bid_id": bid_id, "records": _repo().by_bid_id(bid_id)}
+
+
+@app.get("/canonical/artifacts/by-record-id/{record_id}")
+def get_artifact_by_record_id(record_id: str):
+    rec = _repo().by_record_id(record_id)
+    if rec is None:
+        return JSONResponse(status_code=404, content={"error": "not_found", "record_id": record_id})
+    return rec
+
+
+@app.get("/canonical/artifacts/{artifact_type}/revision/{revision_sequence}")
+def get_artifact_by_revision(artifact_type: str, revision_sequence: int,
+                              bid_id: Optional[str] = None):
+    rec = _repo().by_revision_sequence(artifact_type, revision_sequence, bid_id=bid_id)
+    if rec is None:
+        return JSONResponse(status_code=404, content={"error": "not_found"})
+    return rec
+
+
+@app.get("/canonical/artifacts/by-record-id/{record_id}/lineage")
+def get_artifact_lineage(record_id: str):
+    return {"record_id": record_id, "lineage": _repo().lineage(record_id)}
+
+
+@app.get("/canonical/repository/summary")
+def repository_summary():
+    return _repo().repository_summary()
+
+
+@app.post("/canonical/repository/reset")
+def repository_reset():
+    reset_default_repository()
+    return {"reset": True, "repository_summary": _repo().repository_summary()}
+
+
+# ---------------------------------------------------------------------------
+# Control room payloads
+# ---------------------------------------------------------------------------
+
+@app.get("/control-room/quote-case/{job_id}")
+def get_quote_case_payload(job_id: str):
+    return assemble_quote_case_payload(_repo(), job_id)
+
+
+@app.get("/control-room/package-overview/{bid_id}")
+def get_package_overview_payload(bid_id: str):
+    return assemble_package_overview_payload(_repo(), bid_id)
+
+
+@app.get("/control-room/authority-action")
+def get_authority_action_payload(bid_id: Optional[str] = None):
+    return assemble_authority_action_payload(_repo(), bid_id)
+
+
+@app.get("/control-room/bid-readiness/{bid_id}")
+def get_bid_readiness_payload(bid_id: str):
+    return assemble_bid_readiness_payload(_repo(), bid_id)
+
+
+@app.get("/control-room/timeline")
+def get_timeline_payload(bid_id: Optional[str] = None, job_id: Optional[str] = None):
+    return assemble_timeline_payload(_repo(), bid_id=bid_id, job_id=job_id)
+
+
+# ---------------------------------------------------------------------------
+# Export generation
+# ---------------------------------------------------------------------------
+
+@app.get("/exports/sub-clarification/{job_id}")
+def export_sub_clarification(job_id: str, revision_sequence: Optional[int] = None):
+    return generate_sub_clarification_export(_repo(), job_id, revision_sequence)
+
+
+@app.get("/exports/estimator-review/{job_id}")
+def export_estimator_review(job_id: str, revision_sequence: Optional[int] = None):
+    return generate_estimator_review_export(_repo(), job_id, revision_sequence)
+
+
+@app.get("/exports/authority-action/{bid_id}")
+def export_authority_action(bid_id: str, revision_sequence: Optional[int] = None):
+    return generate_authority_action_export(_repo(), bid_id, revision_sequence)
+
+
+@app.get("/exports/bid-readiness/{bid_id}")
+def export_bid_readiness(bid_id: str, revision_sequence: Optional[int] = None):
+    return generate_bid_readiness_export(_repo(), bid_id, revision_sequence)
+
+
+@app.get("/exports/final-carry/{bid_id}")
+def export_final_carry(bid_id: str, revision_sequence: Optional[int] = None):
+    return generate_final_carry_export(_repo(), bid_id, revision_sequence)
+
+
+# ---------------------------------------------------------------------------
+# Demo harness + seed scenarios
+# ---------------------------------------------------------------------------
+
+@app.get("/demo/scenarios")
+def list_demo_scenarios():
+    return {"scenarios": list_scenarios()}
+
+
+@app.post("/demo/run/{scenario_id}")
+def run_demo_scenario(scenario_id: str, bid_id: Optional[str] = None):
+    try:
+        out = run_scenario_e2e(scenario_id, bid_id=bid_id)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": str(e)})
+    return out
+
+
+@app.get("/demo/fixture")
+def get_demo_fixture(bid_id: str = "demo-bid-1"):
+    return build_demo_fixture(bid_id)
+
+
+@app.post("/demo/run-e2e")
+def run_demo_e2e(request: Dict[str, Any] = None):
+    req = request or {}
+    fixture = req.get("fixture")
+    carry_decision = req.get("carry_decision", "proceed_with_caveats")
+    decided_by = req.get("decided_by", "api_estimator")
+    return run_e2e_demo(fixture=fixture, carry_decision=carry_decision, decided_by=decided_by)
+
+
+# ---------------------------------------------------------------------------
+# C86-C91 hardening endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/error-codes")
+def api_error_codes():
+    return {"error_codes": list_error_codes()}
+
+
+@app.post("/api/scope-check")
+def api_scope_check(request: Dict[str, Any] = None):
+    req = request or {}
+    record_id = req.get("record_id")
+    if not record_id:
+        return to_http_response(build_error(ERR_MALFORMED_PAYLOAD,
+                                             hint="record_id required"))
+    rec = _repo().by_record_id(record_id)
+    if rec is None:
+        return to_http_response(build_error(ERR_RECORD_NOT_FOUND,
+                                             detail={"record_id": record_id}))
+    result = check_scope(rec,
+                         bid_id=req.get("bid_id"),
+                         job_id=req.get("job_id"),
+                         org_id=req.get("org_id"),
+                         owner_id=req.get("owner_id"))
+    if not result["ok"]:
+        return to_http_response(build_error(ERR_SCOPE_MISMATCH,
+                                             detail=result))
+    return result
+
+
+@app.post("/api/revision-diff")
+def api_revision_diff(request: Dict[str, Any] = None):
+    req = request or {}
+    artifact_type = req.get("artifact_type")
+    bid_id = req.get("bid_id")
+    job_id = req.get("job_id")
+    before_rev = req.get("before_revision_sequence")
+    after_rev = req.get("after_revision_sequence")
+    if not artifact_type:
+        return to_http_response(build_error(ERR_MALFORMED_PAYLOAD,
+                                             hint="artifact_type required"))
+
+    repo = _repo()
+    if before_rev is not None and after_rev is not None:
+        before = repo.by_revision_sequence(artifact_type, before_rev, bid_id=bid_id)
+        after = repo.by_revision_sequence(artifact_type, after_rev, bid_id=bid_id)
+        if after is None:
+            return to_http_response(build_error(ERR_MISSING_REVISION,
+                                                 detail={"artifact_type": artifact_type,
+                                                         "revision_sequence": after_rev}))
+        return diff_revisions(before, after)
+
+    history = repo.history(artifact_type, bid_id=bid_id, job_id=job_id)
+    if not history:
+        return to_http_response(build_error(ERR_RECORD_NOT_FOUND,
+                                             detail={"artifact_type": artifact_type,
+                                                     "bid_id": bid_id, "job_id": job_id}))
+    return {
+        "artifact_type": artifact_type,
+        "history_length": len(history),
+        "lineage_diffs": diff_lineage(history),
+        "latest_diff": (diff_revisions(history[-2], history[-1])
+                        if len(history) >= 2 else None),
+        "latest_summary": (diff_summary(diff_revisions(history[-2], history[-1]))
+                           if len(history) >= 2 else None),
+    }
+
+
+@app.get("/api/ui-integration-pack")
+def api_ui_integration_pack():
+    return get_ui_integration_pack()
+
+
+@app.get("/api/ui-integration-pack/screens")
+def api_ui_screens():
+    return {"screen_ids": list_screen_ids()}
+
+
+@app.get("/api/ui-integration-pack/screens/{screen_id}")
+def api_ui_screen(screen_id: str):
+    out = get_screen(screen_id)
+    if out.get("error"):
+        return to_http_response(build_error(ERR_INVALID_ARTIFACT_TYPE,
+                                             detail={"screen_id": screen_id},
+                                             hint="unknown_screen_id"))
+    return out
+
+
+@app.get("/api/ui-integration-pack/exports")
+def api_ui_exports():
+    return {"export_ids": list_export_ids()}
+
+
+@app.get("/api/ui-integration-pack/exports/{export_id}")
+def api_ui_export(export_id: str):
+    out = get_export_action(export_id)
+    if out.get("error"):
+        return to_http_response(build_error(ERR_INVALID_ARTIFACT_TYPE,
+                                             detail={"export_id": export_id},
+                                             hint="unknown_export_id"))
+    return out
+
+
+@app.post("/api/smoke-harness")
+def api_smoke_harness(request: Dict[str, Any] = None):
+    req = request or {}
+    scenario_ids = req.get("scenario_ids")
+    return run_smoke(scenario_ids=scenario_ids, repository=_repo())
+
+
+@app.get("/canonical/artifacts/{artifact_type}/latest-scoped")
+def get_latest_scoped(artifact_type: str,
+                      bid_id: Optional[str] = None,
+                      job_id: Optional[str] = None,
+                      org_id: Optional[str] = None):
+    rec = _repo().latest_scoped(artifact_type, bid_id=bid_id,
+                                 job_id=job_id, org_id=org_id)
+    if rec is None:
+        return to_http_response(build_error(ERR_RECORD_NOT_FOUND,
+                                             detail={"artifact_type": artifact_type,
+                                                     "bid_id": bid_id,
+                                                     "job_id": job_id,
+                                                     "org_id": org_id}))
+    return rec
+
+
+@app.get("/canonical/artifacts/{artifact_type}/history-scoped")
+def get_history_scoped(artifact_type: str,
+                       bid_id: Optional[str] = None,
+                       job_id: Optional[str] = None,
+                       org_id: Optional[str] = None):
+    return {"records": _repo().history_scoped(artifact_type, bid_id=bid_id,
+                                                job_id=job_id, org_id=org_id)}
+
+
+# ---------------------------------------------------------------------------
+# C92-C97 operational-readiness endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/authorization/summary")
+def api_authorization_summary():
+    return authorization_summary()
+
+
+@app.post("/api/authorization/check")
+def api_authorization_check(request: Dict[str, Any] = None):
+    req = request or {}
+    return authorize(req.get("role"), req.get("action"),
+                      context=req.get("context"))
+
+
+@app.get("/api/idempotency/summary")
+def api_idempotency_summary():
+    return get_default_idempotency_store().summary()
+
+
+@app.post("/api/idempotency/reset")
+def api_idempotency_reset():
+    reset_default_idempotency_store()
+    return {"reset": True, "summary": get_default_idempotency_store().summary()}
+
+
+@app.post("/api/idempotent-save/{artifact_type}")
+def api_idempotent_save(artifact_type: str, request: Dict[str, Any] = None):
+    req = request or {}
+    key = req.get("idempotency_key")
+    artifact = req.get("artifact") or {}
+    metadata = req.get("metadata") or {}
+    return idempotent_save_artifact(_repo(), key, artifact_type,
+                                      artifact, metadata)
+
+
+@app.post("/api/backup/snapshot")
+def api_backup_snapshot():
+    return create_snapshot(_repo())
+
+
+@app.post("/api/backup/validate")
+def api_backup_validate(request: Dict[str, Any] = None):
+    snap = (request or {}).get("snapshot") or {}
+    return validate_snapshot(snap)
+
+
+@app.post("/api/backup/restore")
+def api_backup_restore(request: Dict[str, Any] = None):
+    snap = (request or {}).get("snapshot") or {}
+    return restore_snapshot(_repo(), snap)
+
+
+@app.get("/api/reports/kinds")
+def api_report_kinds():
+    return {"report_kinds": list_report_kinds()}
+
+
+@app.post("/api/reports/estimator-review")
+def api_report_estimator_review(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_estimator_review_report(
+        _repo(), req.get("job_id"),
+        revision_sequence=req.get("revision_sequence"))
+
+
+@app.post("/api/reports/authority-action")
+def api_report_authority_action(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_authority_action_report(
+        _repo(), req.get("bid_id"),
+        revision_sequence=req.get("revision_sequence"))
+
+
+@app.post("/api/reports/bid-readiness")
+def api_report_bid_readiness(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_bid_readiness_report(
+        _repo(), req.get("bid_id"),
+        revision_sequence=req.get("revision_sequence"))
+
+
+@app.post("/api/reports/final-carry")
+def api_report_final_carry(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_final_carry_report(
+        _repo(), req.get("bid_id"),
+        revision_sequence=req.get("revision_sequence"))
+
+
+@app.get("/api/diagnostics")
+def api_diagnostics(run_smoke_flag: bool = False):
+    return collect_diagnostics(_repo(), run_smoke=run_smoke_flag)
+
+
+@app.post("/api/acceptance")
+def api_acceptance(request: Dict[str, Any] = None):
+    req = request or {}
+    return run_acceptance(scenario_ids=req.get("scenario_ids"),
+                           repository=_repo())
+
+
+# ---------------------------------------------------------------------------
+# C98-C103 product-facing endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/frontend/manifest")
+def api_frontend_manifest():
+    return build_integration_manifest()
+
+
+@app.get("/api/frontend/bid-overview/{bid_id}")
+def api_frontend_bid_overview(bid_id: str):
+    return ControlRoomReferenceClient(_repo()).bid_overview_bundle(bid_id)
+
+
+@app.get("/api/frontend/quote-case/{job_id}")
+def api_frontend_quote_case(job_id: str):
+    return ControlRoomReferenceClient(_repo()).quote_case_bundle(job_id)
+
+
+@app.get("/api/storage/summary")
+def api_storage_summary():
+    from app.pdf_extraction.storage_adapter import InMemoryStorageAdapter
+    adapter = InMemoryStorageAdapter()
+    contract = ProductionStorageContract(adapter)
+    mirror = mirror_repository(_repo(), contract)
+    return {
+        "mirror_result": mirror,
+        "store_summary": contract.store_summary(),
+    }
+
+
+@app.get("/api/delivery/formats")
+def api_delivery_formats():
+    return {"formats": list_formats()}
+
+
+@app.post("/api/delivery/report")
+def api_delivery_report(request: Dict[str, Any] = None):
+    req = request or {}
+    report = req.get("report") or {}
+    fmt = req.get("format", "json")
+    return deliver_report(report, output_format=fmt)
+
+
+@app.post("/api/delivery/bid/{bid_id}")
+def api_delivery_bid(bid_id: str, request: Dict[str, Any] = None):
+    req = request or {}
+    fmt = req.get("format", "json")
+    return deliver_all_for_bid(_repo(), bid_id, output_format=fmt)
+
+
+@app.get("/api/operator/actions")
+def api_operator_actions():
+    return {
+        "actions": list_operator_actions(),
+        "clarification_states": list_clarification_states(),
+        "carry_states": list_carry_states(),
+    }
+
+
+@app.post("/api/operator/apply")
+def api_operator_apply(request: Dict[str, Any] = None):
+    req = request or {}
+    action = req.get("action")
+    payload = req.get("payload") or {}
+    return apply_operator_action(_repo(), action, payload)
+
+
+@app.get("/api/safety/summary")
+def api_safety_summary():
+    return safety_summary()
+
+
+@app.post("/api/safety/evaluate")
+def api_safety_evaluate(request: Dict[str, Any] = None):
+    req = request or {}
+    return evaluate_safety(
+        action=req.get("action"),
+        role=req.get("role"),
+        environment=req.get("environment"),
+        confirmation_token=req.get("confirmation_token"),
+        expected_token=req.get("expected_token"),
+    )
+
+
+@app.post("/api/safety/reset")
+def api_safety_reset(request: Dict[str, Any] = None):
+    req = request or {}
+    return guarded_reset_repository(
+        role=req.get("role"),
+        environment=req.get("environment"),
+        confirmation_token=req.get("confirmation_token"),
+        expected_token=req.get("expected_token"),
+    )
+
+
+@app.post("/api/safety/restore")
+def api_safety_restore(request: Dict[str, Any] = None):
+    req = request or {}
+    return guarded_restore_snapshot(
+        role=req.get("role"),
+        snapshot=req.get("snapshot") or {},
+        environment=req.get("environment"),
+        confirmation_token=req.get("confirmation_token"),
+        expected_token=req.get("expected_token"),
+    )
+
+
+@app.post("/api/safety/wipe-idempotency")
+def api_safety_wipe_idempotency(request: Dict[str, Any] = None):
+    req = request or {}
+    return guarded_wipe_idempotency(
+        role=req.get("role"),
+        environment=req.get("environment"),
+        confirmation_token=req.get("confirmation_token"),
+        expected_token=req.get("expected_token"),
+    )
+
+
+@app.post("/api/demo/product-flow")
+def api_product_demo(request: Dict[str, Any] = None):
+    req = request or {}
+    scenario_id = req.get("scenario_id", "proceed_with_caveats")
+    return run_product_demo(scenario_id=scenario_id, repository=_repo())
+
+
+# ---------------------------------------------------------------------------
+# C104-C109 UI/deployment endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/ui/screens")
+def api_ui_list_screens():
+    return {"screens": list_ui_screens()}
+
+
+@app.get("/api/ui/quote-case/{job_id}")
+def api_ui_quote_case(job_id: str):
+    return adapt_quote_case(_repo(), job_id)
+
+
+@app.get("/api/ui/package-overview/{bid_id}")
+def api_ui_package_overview(bid_id: str):
+    return adapt_package_overview(_repo(), bid_id)
+
+
+@app.get("/api/ui/authority-action")
+def api_ui_authority_action(bid_id: Optional[str] = None):
+    return adapt_authority_action(_repo(), bid_id)
+
+
+@app.get("/api/ui/bid-readiness/{bid_id}")
+def api_ui_bid_readiness(bid_id: str):
+    return adapt_bid_readiness(_repo(), bid_id)
+
+
+@app.get("/api/ui/timeline")
+def api_ui_timeline(bid_id: Optional[str] = None,
+                     job_id: Optional[str] = None):
+    return adapt_timeline(_repo(), bid_id=bid_id, job_id=job_id)
+
+
+@app.post("/api/ui/revision-inspection")
+def api_ui_revision_inspection(request: Dict[str, Any] = None):
+    req = request or {}
+    return adapt_revision_inspection(
+        _repo(), req.get("artifact_type"),
+        bid_id=req.get("bid_id"), job_id=req.get("job_id"),
+        before_revision=req.get("before_revision_sequence"),
+        after_revision=req.get("after_revision_sequence"),
+    )
+
+
+@app.get("/api/download/report-kinds")
+def api_download_report_kinds():
+    return {"report_kinds": list_download_report_kinds()}
+
+
+@app.post("/api/download/report")
+def api_download_report(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_downloadable(
+        _repo(), req.get("report_kind"),
+        bid_id=req.get("bid_id"), job_id=req.get("job_id"),
+        revision_sequence=req.get("revision_sequence"),
+        output_format=req.get("format", "json"),
+    )
+
+
+@app.post("/api/download/bundle")
+def api_download_bundle(request: Dict[str, Any] = None):
+    req = request or {}
+    return build_downloadable_bundle(
+        _repo(),
+        bid_id=req.get("bid_id"), job_id=req.get("job_id"),
+        output_format=req.get("format", "json"),
+    )
+
+
+@app.get("/api/commands/vocabulary")
+def api_commands_vocabulary():
+    return {"commands": list_operator_commands()}
+
+
+@app.post("/api/commands/execute")
+def api_commands_execute(request: Dict[str, Any] = None):
+    req = request or {}
+    return execute_operator_command(
+        _repo(), req.get("command"),
+        req.get("payload") or {},
+        issued_by=req.get("issued_by"),
+        issued_at=req.get("issued_at"),
+    )
+
+
+@app.get("/api/commands/receipts")
+def api_commands_receipts():
+    return {
+        "summary": get_default_receipt_log().summary(),
+        "receipts": get_default_receipt_log().all_receipts(),
+    }
+
+
+@app.post("/api/commands/receipts/reset")
+def api_commands_receipts_reset():
+    reset_default_receipt_log()
+    return {"reset": True,
+            "summary": get_default_receipt_log().summary()}
+
+
+@app.get("/api/config/default")
+def api_config_default():
+    return default_config()
+
+
+@app.get("/api/config/summary")
+def api_config_summary():
+    return summarize_config(load_config_from_env())
+
+
+@app.post("/api/config/validate")
+def api_config_validate(request: Dict[str, Any] = None):
+    req = request or {}
+    cfg = req.get("config")
+    if cfg is None:
+        cfg = load_config_from_env()
+    return validate_config(cfg)
+
+
+@app.post("/api/bootstrap/start")
+def api_bootstrap_start(request: Dict[str, Any] = None):
+    req = request or {}
+    cfg = req.get("config") or load_config_from_env()
+    receipt = bootstrap(cfg,
+                         seed_scenarios=req.get("seed_scenarios"),
+                         seed_enabled_override=req.get("seed_enabled"))
+    # Do not leak live components over HTTP.
+    return {k: v for k, v in receipt.items()
+            if k not in ("repository", "adapter")}
+
+
+@app.post("/api/bootstrap/health")
+def api_bootstrap_health(request: Dict[str, Any] = None):
+    req = request or {}
+    receipt = req.get("receipt")
+    if receipt is None:
+        cfg = load_config_from_env()
+        receipt = bootstrap(cfg, seed_enabled_override=False)
+        receipt = {k: v for k, v in receipt.items()
+                   if k not in ("repository", "adapter")}
+    return health_check(receipt)
+
+
+@app.post("/api/demo/ui-flow")
+def api_demo_ui_flow(request: Dict[str, Any] = None):
+    req = request or {}
+    scenario_id = req.get("scenario_id", "proceed_with_caveats")
+    out = run_ui_demo(scenario_id=scenario_id)
+    # The UI demo bootstrap creates its own repository; we return its
+    # receipt but do not attempt to graft it into the global repo.
+    return out
+
+
+# ---------------------------------------------------------------------------
+# C120 runtime packaging endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/runtime/profile")
+def api_runtime_profile(mode: Optional[str] = None):
+    return runtime_profile(mode)
+
+
+@app.get("/api/runtime/config")
+def api_runtime_config(mode: Optional[str] = None):
+    return build_runtime_config(mode=mode)
+
+
+@app.get("/api/runtime/frontend-handoff")
+def api_runtime_frontend_handoff(mode: Optional[str] = None):
+    return build_frontend_handoff(mode)
+
+
+@app.post("/api/runtime/package")
+def api_runtime_package(request: Dict[str, Any] = None):
+    req = request or {}
+    return package_runtime(
+        mode=req.get("mode"),
+        overrides=req.get("overrides"),
+        seed_enabled_override=req.get("seed_enabled"),
+    )
+
+
+@app.get("/api/runtime/startup-verification")
+def api_runtime_startup_verification(mode: Optional[str] = None):
+    return startup_verification(mode)
+
+
+# ---------------------------------------------------------------------------
+# C121 acceptance walkthrough endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/acceptance/walkthrough/scenarios")
+def api_walkthrough_scenarios():
+    return {"scenarios": list_walkthrough_scenarios()}
+
+
+@app.post("/api/acceptance/walkthrough")
+def api_walkthrough(request: Dict[str, Any] = None):
+    req = request or {}
+    scenario_id = req.get("scenario_id", "proceed_with_caveats")
+    return run_walkthrough(scenario_id=scenario_id)

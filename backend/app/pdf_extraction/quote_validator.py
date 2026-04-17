@@ -2,16 +2,38 @@
 """
 Validator for extracted quote rows.
 
-Enforces minimal required fields, rejects malformed rows.
-Fail-closed: if too many rows are invalid, extraction fails.
+Enforces the non-negotiable rules for quote rows:
+    - description is required (non-empty after trim)
+    - at least one monetary value (amount OR unit_price) must be present
+    - amount, when present, must be strictly positive
+    - unit_price, when present, must be strictly positive
+    - qty and unit, when present, must be positive / non-empty respectively;
+      None is allowed (never inferred)
+    - if BOTH qty and unit_price and amount are present, they must be
+      internally consistent (within 1% tolerance) — otherwise the row is
+      rejected as ambiguous
 
-This is separate from the DOT schedule validator.
+Fail-closed: if zero valid rows remain, raises ExtractionError with an
+explicit `failure_reason` code.
+
+Separate from the DOT schedule validator.
 """
 from __future__ import annotations
 
 from typing import List, Dict, Any, Tuple
 
 from .extractor import ExtractionError
+
+REASON_STRUCTURE_INSUFFICIENT = "quote_structure_insufficient"
+REASON_NOT_DETERMINISTIC = "quote_rows_not_deterministic"
+
+# Per-row rejection reasons (also used by the staging layer to populate
+# rejected_candidates[].rejection_reason).
+V_MISSING_DESC = "missing_description"
+V_NO_MONETARY = "no_monetary_value"
+V_NON_POSITIVE = "non_positive_numeric"
+V_BAD_NUMERIC = "bad_numeric_row"
+V_INCONSISTENT = "inconsistent_numeric"
 
 
 def validate_quote_rows(
@@ -23,7 +45,7 @@ def validate_quote_rows(
     Returns:
         (valid_rows, rejected_rows, validation_meta)
 
-    Raises ExtractionError if zero valid rows.
+    Raises ExtractionError with failure_reason in meta if zero valid rows.
     """
     valid: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
@@ -35,15 +57,17 @@ def validate_quote_rows(
         else:
             valid.append(row)
 
-    meta = {
+    meta: Dict[str, Any] = {
         "rows_input": len(rows),
         "rows_valid": len(valid),
         "rows_rejected": len(rejected),
     }
 
     if len(valid) == 0:
+        meta["failure_reason"] = REASON_STRUCTURE_INSUFFICIENT
         raise ExtractionError(
-            "All extracted quote rows failed validation.",
+            "All extracted quote rows failed validation. No usable quote "
+            "rows remain.",
             meta=meta,
         )
 
@@ -51,22 +75,49 @@ def validate_quote_rows(
 
 
 def _check_quote_row(row: Dict[str, Any]) -> List[str]:
-    """Check a quote row for minimum required fields."""
+    """Check a quote row against the non-negotiable rules. Returns issue list."""
     issues: List[str] = []
 
-    # Description is always required
     desc = row.get("description")
     if not desc or not str(desc).strip():
-        issues.append("missing description")
+        issues.append(V_MISSING_DESC)
 
-    # Must have at least one monetary value (amount or unit_price)
     amount = row.get("amount")
     unit_price = row.get("unit_price")
     if amount is None and unit_price is None:
-        issues.append("no monetary value (amount or unit_price)")
+        issues.append(V_NO_MONETARY)
 
-    # Amount should be positive if present
     if amount is not None and amount <= 0:
-        issues.append(f"non-positive amount: {amount}")
+        issues.append(V_NON_POSITIVE)
+
+    if unit_price is not None and unit_price <= 0 and V_NON_POSITIVE not in issues:
+        issues.append(V_NON_POSITIVE)
+
+    # qty must be positive if present; None is allowed (never inferred).
+    qty = row.get("qty")
+    if qty is not None:
+        try:
+            if float(qty) <= 0:
+                if V_NON_POSITIVE not in issues:
+                    issues.append(V_NON_POSITIVE)
+        except (TypeError, ValueError):
+            issues.append(V_BAD_NUMERIC)
+
+    # If all three numeric fields are present, check internal consistency.
+    # Otherwise the row is ambiguous and must be rejected.
+    if qty is not None and unit_price is not None and amount is not None:
+        try:
+            q = float(qty)
+            up = float(unit_price)
+            a = float(amount)
+            expected = q * up
+            # Tolerate 1% rounding drift.
+            if expected > 0:
+                drift = abs(expected - a) / expected
+                if drift > 0.01:
+                    issues.append(V_INCONSISTENT)
+        except (TypeError, ValueError):
+            if V_BAD_NUMERIC not in issues:
+                issues.append(V_BAD_NUMERIC)
 
     return issues
